@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Fetch OpenUtau.Core.dll from the latest OpenUtau release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{ 'User-Agent' = 'OpenUtau-ConsonantLength-CI' }
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/stakira/OpenUtau/releases/latest' -Headers $headers
+          $asset = $release.assets | Where-Object { $_.name -match 'win.*x64.*\.zip$' } | Select-Object -First 1
+          if (-not $asset) { $asset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1 }
+          if (-not $asset) { throw 'No OpenUtau release zip asset found.' }
+          Write-Host "Downloading $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile openutau.zip
+          Expand-Archive openutau.zip -DestinationPath openutau -Force
+          $core = Get-ChildItem openutau -Recurse -Filter 'OpenUtau.Core.dll' | Select-Object -First 1
+          if (-not $core) { throw 'OpenUtau.Core.dll not found in the release package.' }
+          New-Item -ItemType Directory -Force lib | Out-Null
+          Copy-Item $core.FullName lib/OpenUtau.Core.dll
+
+      - name: Run planning tests
+        run: dotnet run --project tests/ConsonantLength.Tests/ConsonantLength.Tests.csproj -c Release
+
+      - name: Build plugin
+        run: dotnet build src/OpenUtau.Plugin.ConsonantLength/OpenUtau.Plugin.ConsonantLength.csproj -c Release -p:OpenUtauCorePath="${{ github.workspace }}/lib/OpenUtau.Core.dll"
+
+      - name: Probe plugin loading
+        run: dotnet run --project tests/PluginLoadProbe/PluginLoadProbe.csproj -c Release -- lib/OpenUtau.Core.dll src/OpenUtau.Plugin.ConsonantLength/bin/Release/OpenUtau.Plugin.ConsonantLength.dll
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = 'src/OpenUtau.Plugin.ConsonantLength/bin/Release/OpenUtau.Plugin.ConsonantLength.dll'
+          if (-not (Test-Path $dll)) { throw "Missing $dll" }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $dll dist/
+          Copy-Item README.md dist/
+          Copy-Item LICENSE dist/
+          Compress-Archive -Path 'dist/*' -DestinationPath 'dist/OpenUtau.Plugin.ConsonantLength.zip' -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenUtau.Plugin.ConsonantLength
+          path: |
+            dist/OpenUtau.Plugin.ConsonantLength.zip
+            dist/OpenUtau.Plugin.ConsonantLength.dll

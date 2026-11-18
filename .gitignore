@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Local OpenUtau.Core.dll used for compiling
+lib/
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# Test / temp
+TestResults/
+*.log

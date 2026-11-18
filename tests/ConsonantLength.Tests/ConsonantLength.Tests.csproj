@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ConsonantLength.Tests</AssemblyName>
+    <RootNamespace>OpenUtau.Plugin.ConsonantLength.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The pure planning logic is compiled into the test project: no OpenUtau / Avalonia needed. -->
+    <Compile Include="..\..\src\OpenUtau.Plugin.ConsonantLength\Model\ConsonantRule.cs" Link="Model\ConsonantRule.cs" />
+    <Compile Include="..\..\src\OpenUtau.Plugin.ConsonantLength\Model\ConsonantPresets.cs" Link="Model\ConsonantPresets.cs" />
+    <Compile Include="..\..\src\OpenUtau.Plugin.ConsonantLength\Model\PhonemeMatcher.cs" Link="Model\PhonemeMatcher.cs" />
+    <Compile Include="..\..\src\OpenUtau.Plugin.ConsonantLength\Model\ConsonantPlanner.cs" Link="Model\ConsonantPlanner.cs" />
+  </ItemGroup>
+
+</Project>

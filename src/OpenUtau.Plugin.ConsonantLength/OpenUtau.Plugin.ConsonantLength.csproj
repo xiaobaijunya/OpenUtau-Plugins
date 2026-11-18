@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>OpenUtau.Plugin.ConsonantLength</AssemblyName>
+    <RootNamespace>OpenUtau.Plugin.ConsonantLength</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>xiaobaijunya</Authors>
+    <Product>OpenUtau Consonant Length Adjuster</Product>
+    <Description>Batch adjust consonant length of notes in OpenUtau (CV / CVVC / AI voicebanks).</Description>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <DebugType>embedded</DebugType>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <NoWarn>$(NoWarn);CS1591;NU1701</NoWarn>
+    <!-- OpenUtau.Core is built against System.Text.Json 9 while net8.0 ships 8; the host provides 9 at runtime. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+
+    <!--
+      Path to OpenUtau.Core.dll.
+      Resolution order:
+        1. -p:OpenUtauCorePath=... or the OPENUTAU_CORE_PATH environment variable
+        2. lib/OpenUtau.Core.dll inside this repository
+        3. a local development build (fallback, see README)
+    -->
+    <OpenUtauCorePath Condition="'$(OpenUtauCorePath)' == '' and '$(OPENUTAU_CORE_PATH)' != ''">$(OPENUTAU_CORE_PATH)</OpenUtauCorePath>
+    <OpenUtauCorePath Condition="'$(OpenUtauCorePath)' == '' and Exists('$(MSBuildThisFileDirectory)..\..\lib\OpenUtau.Core.dll')">$(MSBuildThisFileDirectory)..\..\lib\OpenUtau.Core.dll</OpenUtauCorePath>
+    <OpenUtauCorePath Condition="'$(OpenUtauCorePath)' == '' and Exists('G:\Coding\OpenUtau-CustomRenderer\OpenUtau\bin\Debug\net8.0-windows\OpenUtau.Core.dll')">G:\Coding\OpenUtau-CustomRenderer\OpenUtau\bin\Debug\net8.0-windows\OpenUtau.Core.dll</OpenUtauCorePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile time only: OpenUtau ships Avalonia, the plugin DLL must not. -->
+    <PackageReference Include="Avalonia" Version="11.2.4">
+      <ExcludeAssets>runtime</ExcludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="OpenUtau.Core">
+      <HintPath>$(OpenUtauCorePath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateOpenUtauCore" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(OpenUtauCorePath)')"
+           Text="OpenUtau.Core.dll was not found. Set the OPENUTAU_CORE_PATH environment variable (or pass -p:OpenUtauCorePath=...) to the full path of OpenUtau.Core.dll, see README.md." />
+    <Message Importance="high" Text="Using OpenUtau.Core.dll from $(OpenUtauCorePath)" />
+  </Target>
+
+</Project>
