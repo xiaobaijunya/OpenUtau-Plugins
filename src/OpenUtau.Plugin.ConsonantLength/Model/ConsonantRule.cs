@@ -132,6 +132,11 @@ namespace OpenUtau.Plugin.ConsonantLength {
         public double MaxLengthMs { get; set; } = 400;
         /// <summary>Scale overlap (p1) together with preutter (p0) in CV mode.</summary>
         public bool ScaleOverlap { get; set; } = true;
+        /// <summary>
+        /// When true the ratio is applied to the singer's default values (oto autoPreutter / autoOverlap)
+        /// instead of the values currently shown in the piano roll, so repeated runs do not stack up.
+        /// </summary>
+        public bool BaseOnAuto { get; set; } = true;
         public List<ConsonantRule> Rules { get; set; } = new List<ConsonantRule>();
 
         // --- p1 / overlap page ---
@@ -155,6 +160,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 MinLengthMs = MinLengthMs,
                 MaxLengthMs = MaxLengthMs,
                 ScaleOverlap = ScaleOverlap,
+                BaseOnAuto = BaseOnAuto,
                 Rules = Rules.Select(r => r.Clone()).ToList(),
                 P1Target = P1Target,
                 P1Unit = P1Unit,

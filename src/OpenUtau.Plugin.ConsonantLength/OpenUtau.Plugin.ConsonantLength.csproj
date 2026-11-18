@@ -9,7 +9,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>OpenUtau.Plugin.ConsonantLength</AssemblyName>
     <RootNamespace>OpenUtau.Plugin.ConsonantLength</RootNamespace>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <Authors>xiaobaijunya</Authors>
     <Product>OpenUtau Consonant Length Adjuster</Product>
     <Description>Batch adjust consonant length of notes in OpenUtau (CV / CVVC / AI voicebanks).</Description>

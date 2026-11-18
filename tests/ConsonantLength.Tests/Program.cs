@@ -43,7 +43,8 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
             TestMatcher();
             TestPresets();
             TestCv();
-            TestCvExistingDelta();
+            TestCvAutoBase();
+            TestCvCurrentBase();
             TestCvOverlapOff();
             TestCvClamp();
             TestCvvc();
@@ -117,7 +118,8 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
             }
         }
 
-        static void TestCvExistingDelta() {
+        static void TestCvAutoBase() {
+            // Default: ratio is applied to the singer default (autoPreutter), so repeat runs do not stack.
             var settings = Settings(AdjustMode.CV, ("sh", 0.5));
             var snaps = new List<PhonemeSnapshot> {
                 new PhonemeSnapshot {
@@ -127,10 +129,28 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
                 },
             };
             var plan = ConsonantPlanner.Plan(snaps, new[] { 0 }, settings, MsToTicks);
-            Check(plan.Changes.Count == 1, "cv existing delta: one change");
+            Check(plan.Changes.Count == 1, "cv auto base: one change");
             if (plan.Changes.Count == 1) {
-                CheckClose(65, plan.Changes[0].AfterMs, "cv existing delta: 130*0.5");
-                CheckClose(-35, plan.Changes[0].NewPreutterDelta, "cv existing delta relative to auto");
+                CheckClose(50, plan.Changes[0].AfterMs, "cv auto base: autoPreutter 100 * 0.5");
+                CheckClose(-50, plan.Changes[0].NewPreutterDelta, "cv auto base: delta vs autoPreutter");
+            }
+        }
+
+        static void TestCvCurrentBase() {
+            var settings = Settings(AdjustMode.CV, ("sh", 0.5));
+            settings.BaseOnAuto = false;
+            var snaps = new List<PhonemeSnapshot> {
+                new PhonemeSnapshot {
+                    NoteIndex = 0, Index = 0, Name = "shao", Position = 0, Duration = 480,
+                    DurationMs = 500, Preutter = 130, AutoPreutter = 100,
+                    Overlap = 20, AutoOverlap = 20, NotePosition = 0,
+                },
+            };
+            var plan = ConsonantPlanner.Plan(snaps, new[] { 0 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "cv current base: one change");
+            if (plan.Changes.Count == 1) {
+                CheckClose(65, plan.Changes[0].AfterMs, "cv current base: current 130 * 0.5");
+                CheckClose(-35, plan.Changes[0].NewPreutterDelta, "cv current base: delta vs autoPreutter");
             }
         }
 
@@ -322,10 +342,15 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
             var plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
             Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 18) < 0.01, "p1 absolute: 18ms");
 
+            // VC phoneme: current preutter 25ms, autoPreutter 20ms.
             settings.P1Unit = P1Unit.FractionOfPreutter;
             settings.P1Fraction = 0.4;
             plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
-            Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 10) < 0.01, "p1 fraction: 25ms * 0.4");
+            Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 8) < 0.01, "p1 fraction: autoPreutter 20ms * 0.4");
+
+            settings.BaseOnAuto = false;
+            plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 10) < 0.01, "p1 fraction: current preutter 25ms * 0.4");
         }
 
         static void TestOverlapClamp() {

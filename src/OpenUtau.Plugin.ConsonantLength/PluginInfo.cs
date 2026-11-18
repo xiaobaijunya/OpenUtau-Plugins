@@ -4,7 +4,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
     /// <summary>Version shown in the editor and written to the log.</summary>
     internal static class PluginInfo {
-        public const string Version = "1.1.1";
+        public const string Version = "1.1.2";
 
         public static string AssemblyVersion {
             get {

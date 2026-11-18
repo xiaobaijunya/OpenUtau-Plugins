@@ -46,16 +46,17 @@ namespace OpenUtau.Plugin.ConsonantLength {
         readonly RadioButton cvvcRadio = new RadioButton { Content = "CVVC 模式", GroupName = "cl-mode" };
         readonly RadioButton aiRadio = new RadioButton { Content = "AI 模式", GroupName = "cl-mode" };
         readonly TextBlock modeDescription = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.72, FontSize = 12 };
-        readonly NumericUpDown masterBox = new NumericUpDown();
-        readonly NumericUpDown minBox = new NumericUpDown();
-        readonly NumericUpDown maxBox = new NumericUpDown();
+        readonly CheckBox baseOnAutoCheck = new CheckBox { Content = "以音素器默认值为基准" };
+        NumberField masterField;
+        NumberField minField;
+        NumberField maxField;
         readonly CheckBox overlapCheck = new CheckBox { Content = "同时缩放 overlap（p1 点）" };
         readonly TextBlock durationPreview = PreviewText();
 
         // p1 page
         readonly ComboBox p1TargetBox = new ComboBox { MinWidth = 230 };
         readonly ComboBox p1UnitBox = new ComboBox { MinWidth = 170 };
-        readonly NumericUpDown p1ValueBox = new NumericUpDown { Width = 150, MinHeight = 32, FontSize = 13 };
+        NumberField p1Field;
         readonly TextBlock p1Hint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
         readonly TextBlock overlapPreview = PreviewText();
 
@@ -170,9 +171,23 @@ namespace OpenUtau.Plugin.ConsonantLength {
             Grid.SetColumn(scope, 1);
             grid.Children.Add(scope);
 
+            baseOnAutoCheck.IsChecked = settings.BaseOnAuto;
+            baseOnAutoCheck.FontSize = 13;
+            baseOnAutoCheck.Margin = new Thickness(0, 6, 0, 0);
+            ToolTip.SetTip(baseOnAutoCheck,
+                "勾选：以音源 oto 的默认值（autoPreutter / autoOverlap）为基准计算，重复应用不会叠加。\n" +
+                "取消：以钢琴卷帘里当前显示的值（可能已经被改过）为基准计算。");
+            baseOnAutoCheck.Click += (s, e) => {
+                settings.BaseOnAuto = baseOnAutoCheck.IsChecked == true;
+                UpdateModeDescription();
+                UpdateP1Hint();
+                SchedulePreview();
+            };
+
             var wrapper = new StackPanel { Spacing = 2 };
             wrapper.Children.Add(grid);
             wrapper.Children.Add(scopeHint);
+            wrapper.Children.Add(baseOnAutoCheck);
             return wrapper;
         }
 
@@ -238,58 +253,25 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             var masterRow = new StackPanel { Orientation = Orientation.Horizontal };
             masterRow.Children.Add(new TextBlock { Text = "整体倍率", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            masterBox.Minimum = 0.1m;
-            masterBox.Maximum = 3.0m;
-            masterBox.Increment = 0.05m;
-            masterBox.FormatString = "0.00";
-            masterBox.Value = (decimal)settings.MasterRatio;
-            masterBox.Width = 150;
-            masterBox.MinHeight = 32;
-            masterBox.FontSize = 13;
-            masterBox.ValueChanged += (s, e) => {
-                if (suppressControlEvents || !masterBox.Value.HasValue) {
-                    return;
-                }
-                settings.MasterRatio = (double)masterBox.Value.Value;
+            masterField = new NumberField(settings.MasterRatio, 0.1, 3.0, "0.00", 150, value => {
+                settings.MasterRatio = value;
                 SchedulePreview();
-            };
-            masterRow.Children.Add(masterBox);
+            });
+            masterRow.Children.Add(masterField.Control);
 
-            var clampRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var clampRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             clampRow.Children.Add(new TextBlock { Text = "最短(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
-            minBox.Minimum = 0m;
-            minBox.Maximum = 500m;
-            minBox.Increment = 5m;
-            minBox.FormatString = "0.#";
-            minBox.Value = (decimal)settings.MinLengthMs;
-            minBox.Width = 140;
-            minBox.MinHeight = 32;
-            minBox.FontSize = 13;
-            minBox.ValueChanged += (s, e) => {
-                if (suppressControlEvents || !minBox.Value.HasValue) {
-                    return;
-                }
-                settings.MinLengthMs = (double)minBox.Value.Value;
+            minField = new NumberField(settings.MinLengthMs, 0, 500, "0.#", 120, value => {
+                settings.MinLengthMs = value;
                 SchedulePreview();
-            };
-            clampRow.Children.Add(minBox);
+            });
+            clampRow.Children.Add(minField.Control);
             clampRow.Children.Add(new TextBlock { Text = "最长(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) });
-            maxBox.Minimum = 10m;
-            maxBox.Maximum = 2000m;
-            maxBox.Increment = 10m;
-            maxBox.FormatString = "0.#";
-            maxBox.Value = (decimal)settings.MaxLengthMs;
-            maxBox.Width = 140;
-            maxBox.MinHeight = 32;
-            maxBox.FontSize = 13;
-            maxBox.ValueChanged += (s, e) => {
-                if (suppressControlEvents || !maxBox.Value.HasValue) {
-                    return;
-                }
-                settings.MaxLengthMs = (double)maxBox.Value.Value;
+            maxField = new NumberField(settings.MaxLengthMs, 10, 2000, "0.#", 120, value => {
+                settings.MaxLengthMs = value;
                 SchedulePreview();
-            };
-            clampRow.Children.Add(maxBox);
+            });
+            clampRow.Children.Add(maxField.Control);
 
             overlapCheck.IsChecked = settings.ScaleOverlap;
             overlapCheck.VerticalAlignment = VerticalAlignment.Center;
@@ -314,7 +296,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             return Page(
                 Card("① 调整模式", null, modeContent),
-                Card("② 参数", "整体倍率会与每条规则的倍率相乘；最短/最长用于防止过度调整。", paramContent),
+                Card("② 参数", "整体倍率会与每条规则的倍率相乘；最短/最长用于防止过度调整。基准由窗口右上角的「以音素器默认值为基准」控制。", paramContent),
                 previewCard);
         }
 
@@ -334,24 +316,19 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 SchedulePreview();
             };
 
-            p1UnitBox.ItemsSource = new[] { "倍率 ×（p1 = 当前 p1 × 倍率）", "绝对值（直接设为 ms）", "占 p0 的比例（p1 = p0 × 比例）" };
+            p1UnitBox.ItemsSource = new[] { "倍率 ×（p1 = 基准 p1 × 倍率）", "绝对值（直接设为 ms）", "占 p0 的比例（p1 = 基准 p0 × 比例）" };
             p1UnitBox.SelectedIndex = (int)settings.P1Unit;
             p1UnitBox.SelectionChanged += (s, e) => {
                 if (suppressControlEvents) {
                     return;
                 }
                 settings.P1Unit = (P1Unit)Math.Clamp(p1UnitBox.SelectedIndex, 0, 2);
-                ConfigureP1ValueBox();
+                ConfigureP1Field();
                 UpdateP1Hint();
                 SchedulePreview();
             };
 
-            ConfigureP1ValueBox();
-            p1ValueBox.ValueChanged += (s, e) => {
-                if (suppressControlEvents || !p1ValueBox.Value.HasValue) {
-                    return;
-                }
-                double value = (double)p1ValueBox.Value.Value;
+            p1Field = new NumberField(settings.P1Ratio, 0.1, 3.0, "0.00", 150, value => {
                 switch (settings.P1Unit) {
                     case P1Unit.Ratio:
                         settings.P1Ratio = value;
@@ -365,17 +342,18 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 }
                 UpdateP1Hint();
                 SchedulePreview();
-            };
+            });
+            ConfigureP1Field();
 
-            var targetRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var targetRow = new WrapPanel { Orientation = Orientation.Horizontal };
             targetRow.Children.Add(new TextBlock { Text = "作用对象", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             targetRow.Children.Add(p1TargetBox);
 
-            var unitRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            var unitRow = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             unitRow.Children.Add(new TextBlock { Text = "设置方式", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             unitRow.Children.Add(p1UnitBox);
             unitRow.Children.Add(new TextBlock { Text = "数值", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 8, 0) });
-            unitRow.Children.Add(p1ValueBox);
+            unitRow.Children.Add(p1Field.Control);
 
             var content = new StackPanel { Spacing = 6 };
             content.Children.Add(targetRow);
@@ -395,32 +373,21 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 }));
         }
 
-        void ConfigureP1ValueBox() {
-            suppressControlEvents = true;
+        void ConfigureP1Field() {
+            if (p1Field == null) {
+                return;
+            }
             switch (settings.P1Unit) {
                 case P1Unit.Ratio:
-                    p1ValueBox.Minimum = 0.1m;
-                    p1ValueBox.Maximum = 3.0m;
-                    p1ValueBox.Increment = 0.05m;
-                    p1ValueBox.FormatString = "0.00";
-                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Ratio, 0.1, 3.0);
+                    p1Field.SetRange(0.1, 3.0, "0.00", settings.P1Ratio);
                     break;
                 case P1Unit.Milliseconds:
-                    p1ValueBox.Minimum = -200m;
-                    p1ValueBox.Maximum = 400m;
-                    p1ValueBox.Increment = 5m;
-                    p1ValueBox.FormatString = "0.#";
-                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Milliseconds, -200, 400);
+                    p1Field.SetRange(-200, 400, "0.#", settings.P1Milliseconds);
                     break;
                 default:
-                    p1ValueBox.Minimum = -1m;
-                    p1ValueBox.Maximum = 1m;
-                    p1ValueBox.Increment = 0.05m;
-                    p1ValueBox.FormatString = "0.00";
-                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Fraction, -1, 1);
+                    p1Field.SetRange(-1, 1, "0.00", settings.P1Fraction);
                     break;
             }
-            suppressControlEvents = false;
         }
 
         void UpdateP1Hint() {
@@ -430,9 +397,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 _ => "音符起始辅音（音符起点处的音素）",
             };
             string unit = settings.P1Unit switch {
-                P1Unit.Ratio => $"p1 × {settings.P1Ratio:0.00}",
+                P1Unit.Ratio => $"p1 × {settings.P1Ratio:0.00}（基准：{(settings.BaseOnAuto ? "音源默认 overlap" : "当前 overlap")}）",
                 P1Unit.Milliseconds => $"p1 = {settings.P1Milliseconds:0.#} ms",
-                _ => $"p1 = p0 × {settings.P1Fraction:0.00}",
+                _ => $"p1 = {settings.P1Fraction:0.00} × p0（基准 p0：{(settings.BaseOnAuto ? "音源默认 preutter" : "当前 preutter")}）",
             };
             p1Hint.Text = $"当前：{target}，{unit}。结果会被限制在 0 ~ p0 之间。";
         }
@@ -643,6 +610,70 @@ namespace OpenUtau.Plugin.ConsonantLength {
             public override string ToString() => Preset.Name;
         }
 
+        /// <summary>
+        /// A plain TextBox based number input. NumericUpDown clipped the text behind its spinner
+        /// buttons and only committed the value on focus loss, so this control parses while typing.
+        /// </summary>
+        sealed class NumberField {
+            readonly TextBox box;
+            readonly Action<double> onChanged;
+            double minimum = double.MinValue;
+            double maximum = double.MaxValue;
+            string format = "0.##";
+            bool suppress;
+
+            public TextBox Control => box;
+
+            public double Value { get; private set; }
+
+            public NumberField(double value, double minimum, double maximum, string format, double width, Action<double> onChanged) {
+                this.onChanged = onChanged;
+                box = new TextBox {
+                    Width = width,
+                    MinHeight = 32,
+                    FontSize = 13,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                };
+                SetRange(minimum, maximum, format, value);
+                box.TextChanged += (s, e) => {
+                    if (suppress) {
+                        return;
+                    }
+                    if (TryParse(box.Text, out double parsed)) {
+                        Value = Math.Clamp(parsed, this.minimum, this.maximum);
+                        onChanged(Value);
+                    }
+                };
+                box.LostFocus += (s, e) => {
+                    suppress = true;
+                    box.Text = Value.ToString(format, CultureInfo.InvariantCulture);
+                    suppress = false;
+                };
+            }
+
+            public void SetRange(double minimum, double maximum, string format, double value) {
+                this.minimum = minimum;
+                this.maximum = maximum;
+                this.format = format;
+                Value = Math.Clamp(value, minimum, maximum);
+                suppress = true;
+                box.Text = Value.ToString(format, CultureInfo.InvariantCulture);
+                suppress = false;
+            }
+
+            static bool TryParse(string text, out double value) {
+                if (string.IsNullOrWhiteSpace(text)) {
+                    value = 0;
+                    return false;
+                }
+                if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) {
+                    return true;
+                }
+                return double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
+            }
+        }
+
         void OnWindowKeyDown(object sender, KeyEventArgs e) {
             if (e.Key == Key.Escape) {
                 Close();
@@ -687,7 +718,10 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 case AdjustMode.CV:
                     modeDescription.Text =
                         "CV：只移动当前音素的 p0 / p1 两个点（preutter / overlap）。" +
-                        "辅音位于 pre 线以前、即 p2（0 点）之前的那段时间，缩放 preutter 就相当于把辅音拉长或缩短。";
+                        "辅音位于 pre 线以前、即 p2（0 点）之前的那段时间，缩放 preutter 就相当于把辅音拉长或缩短。" +
+                        (settings.BaseOnAuto
+                            ? "\n当前以音源 oto 的默认值为基准：每次都用默认值 × 倍率，重复应用不会叠加。"
+                            : "\n当前以钢琴卷帘里显示的值（当前值）为基准：连续应用会把倍率叠加到已改过的值上。");
                     break;
                 case AdjustMode.CVVC:
                     modeDescription.Text =

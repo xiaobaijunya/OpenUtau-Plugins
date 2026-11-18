@@ -303,20 +303,22 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 result.Unchanged++;
                 return;
             }
-            if (ph.Preutter < 0.5) {
+            double oldPreutter = ph.Preutter;
+            double basePreutter = settings.BaseOnAuto ? ph.AutoPreutter : ph.Preutter;
+            if (basePreutter < 0.5) {
                 // No consonant before the vowel in this phoneme (e.g. an AI bank without oto preutter).
                 result.Unchanged++;
                 return;
             }
-            double oldPreutter = ph.Preutter;
-            double newPreutter = Math.Clamp(oldPreutter * ratio, settings.MinLengthMs, settings.MaxLengthMs);
-            bool clamped = Math.Abs(newPreutter - oldPreutter * ratio) > 0.01;
+            double newPreutter = Math.Clamp(basePreutter * ratio, settings.MinLengthMs, settings.MaxLengthMs);
+            bool clamped = Math.Abs(newPreutter - basePreutter * ratio) > 0.01;
             if (Math.Abs(newPreutter - oldPreutter) < 0.2) {
                 result.Unchanged++;
                 return;
             }
-            double k = newPreutter / oldPreutter;
-            double newOverlap = settings.ScaleOverlap ? ph.Overlap * k : ph.Overlap;
+            double k = newPreutter / basePreutter;
+            double baseOverlap = settings.BaseOnAuto ? ph.AutoOverlap : ph.Overlap;
+            double newOverlap = settings.ScaleOverlap ? baseOverlap * k : ph.Overlap;
             if (newOverlap > newPreutter) {
                 newOverlap = newPreutter;
             }
@@ -431,13 +433,13 @@ namespace OpenUtau.Plugin.ConsonantLength {
             switch (settings.P1Unit) {
                 case P1Unit.Ratio:
                     ratio = Math.Clamp(settings.P1Ratio, 0.1, 3.0);
-                    newOverlap = ph.Overlap * ratio;
+                    newOverlap = (settings.BaseOnAuto ? ph.AutoOverlap : ph.Overlap) * ratio;
                     break;
                 case P1Unit.Milliseconds:
                     newOverlap = settings.P1Milliseconds;
                     break;
                 default:
-                    newOverlap = ph.Preutter * settings.P1Fraction;
+                    newOverlap = (settings.BaseOnAuto ? ph.AutoPreutter : ph.Preutter) * settings.P1Fraction;
                     break;
             }
             bool clamped = false;

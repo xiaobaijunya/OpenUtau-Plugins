@@ -16,6 +16,9 @@
     <PackageReference Include="Avalonia.Headless" Version="11.2.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.4" />
     <PackageReference Include="Avalonia.Skia" Version="11.2.4" />
+    <!-- OpenUtau.Core runtime dependencies touched while building the fake project -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Serilog" Version="4.1.0" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="OpenUtau.Core">
@@ -31,4 +34,16 @@
       <Private>true</Private>
     </Reference>
   </ItemGroup>
+
+  <Target Name="CopyOpenUtauDependencies" AfterTargets="Build">
+    <PropertyGroup>
+      <OpenUtauCoreDir>$([System.IO.Path]::GetDirectoryName('$(OpenUtauCorePath)'))</OpenUtauCoreDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <ProbeDependency Include="$(OpenUtauCoreDir)\Newtonsoft.Json.dll" Condition="Exists('$(OpenUtauCoreDir)\Newtonsoft.Json.dll')" />
+      <ProbeDependency Include="$(OpenUtauCoreDir)\Serilog.dll" Condition="Exists('$(OpenUtauCoreDir)\Serilog.dll')" />
+      <ProbeDependency Include="$(OpenUtauCoreDir)\YamlDotNet.dll" Condition="Exists('$(OpenUtauCoreDir)\YamlDotNet.dll')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ProbeDependency)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>
