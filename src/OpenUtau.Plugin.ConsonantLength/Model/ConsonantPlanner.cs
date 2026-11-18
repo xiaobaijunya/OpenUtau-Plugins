@@ -9,6 +9,8 @@ namespace OpenUtau.Plugin.ConsonantLength {
         Preutter = 0,
         /// <summary>Move the left edge of a phoneme slot by changing its offset, in ticks.</summary>
         Position = 1,
+        /// <summary>Move p1 only: overlap of a phoneme, in milliseconds.</summary>
+        Overlap = 2,
     }
 
     /// <summary>
@@ -49,7 +51,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
         public double AfterMs { get; set; }
         /// <summary>New absolute preutter delta (ms) for ChangeKind.Preutter.</summary>
         public float NewPreutterDelta { get; set; }
-        /// <summary>New absolute overlap delta (ms) for ChangeKind.Preutter.</summary>
+        /// <summary>New absolute overlap delta (ms) for ChangeKind.Preutter / Overlap.</summary>
         public float NewOverlapDelta { get; set; }
         public bool HasOverlapChange { get; set; }
         /// <summary>New absolute offset in ticks for ChangeKind.Position.</summary>
@@ -68,26 +70,121 @@ namespace OpenUtau.Plugin.ConsonantLength {
         public bool HasChanges => Changes.Count > 0;
     }
 
+    internal enum TargetSelector {
+        /// <summary>The phoneme that carries the note onset (CV).</summary>
+        NoteOnset = 0,
+        /// <summary>The VC phoneme right before the note's vowel phoneme (CVVC).</summary>
+        PreviousVc = 1,
+        /// <summary>Every phoneme of the note (AI).</summary>
+        AllMatched = 2,
+    }
+
     /// <summary>
     /// Computes, from read only snapshots, which phoneme timing values have to change.
     /// Nothing here touches the document; the caller turns the result into OpenUtau commands.
     /// </summary>
     internal static class ConsonantPlanner {
 
+        /// <summary>The duration page: CV / CVVC / AI.</summary>
         public static PlanResult Plan(
             IReadOnlyList<PhonemeSnapshot> phonemes,
             IEnumerable<int> targetNotes,
             PluginSettings settings,
             Func<int, double, int> msToTicks) {
 
-            var result = new PlanResult { Snapshots = phonemes };
-            if (phonemes == null || phonemes.Count == 0 || settings == null) {
-                return result;
+            var result = Begin(phonemes, settings, msToTicks);
+            if (result == null) {
+                return new PlanResult { Snapshots = phonemes };
             }
-            msToTicks ??= (refTick, ms) => (int)Math.Round(ms);
-            settings.Sanitize();
-
+            var byNote = GroupByNote(phonemes);
+            var noteIndexes = ResolveNotes(byNote, targetNotes, result);
             var matcher = PhonemeMatcher.Compile(settings.Rules);
+            var done = new HashSet<int>();
+
+            foreach (int noteIndex in noteIndexes) {
+                TargetSelector selector = settings.Mode == AdjustMode.CV ? TargetSelector.NoteOnset
+                    : settings.Mode == AdjustMode.CVVC ? TargetSelector.PreviousVc
+                    : TargetSelector.AllMatched;
+                foreach (int index in SelectTargets(phonemes, byNote, noteIndex, selector)) {
+                    if (!done.Add(index)) {
+                        continue;
+                    }
+                    if (selector == TargetSelector.NoteOnset) {
+                        PlanPreutter(phonemes, index, settings, matcher, result);
+                    } else {
+                        PlanSlot(phonemes, index, settings, matcher, result, msToTicks);
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// <summary>The p1 page: change only the overlap of the selected phonemes.</summary>
+        public static PlanResult PlanOverlap(
+            IReadOnlyList<PhonemeSnapshot> phonemes,
+            IEnumerable<int> targetNotes,
+            PluginSettings settings,
+            Func<int, double, int> msToTicks) {
+
+            var result = Begin(phonemes, settings, msToTicks);
+            if (result == null) {
+                return new PlanResult { Snapshots = phonemes };
+            }
+            var byNote = GroupByNote(phonemes);
+            var noteIndexes = ResolveNotes(byNote, targetNotes, result);
+            var matcher = PhonemeMatcher.Compile(settings.Rules);
+            var done = new HashSet<int>();
+            TargetSelector selector = settings.P1Target == P1Target.NoteOnset ? TargetSelector.NoteOnset
+                : settings.P1Target == P1Target.PreviousVc ? TargetSelector.PreviousVc
+                : TargetSelector.AllMatched;
+
+            foreach (int noteIndex in noteIndexes) {
+                foreach (int index in SelectTargets(phonemes, byNote, noteIndex, selector)) {
+                    if (done.Add(index)) {
+                        PlanOverlapForIndex(phonemes, index, settings, matcher, result);
+                    }
+                }
+            }
+            return result;
+        }
+
+        /// <summary>The alignment page: put the VC consonant's p0 on the previous phoneme's pre line (or another anchor).</summary>
+        public static PlanResult PlanAlign(
+            IReadOnlyList<PhonemeSnapshot> phonemes,
+            IEnumerable<int> targetNotes,
+            PluginSettings settings,
+            Func<int, double, int> msToTicks) {
+
+            var result = Begin(phonemes, settings, msToTicks);
+            if (result == null) {
+                return new PlanResult { Snapshots = phonemes };
+            }
+            var byNote = GroupByNote(phonemes);
+            var noteIndexes = ResolveNotes(byNote, targetNotes, result);
+            var done = new HashSet<int>();
+
+            var selector = settings.AlignTarget == AlignTarget.NoteOnset ? TargetSelector.NoteOnset : TargetSelector.PreviousVc;
+            foreach (int noteIndex in noteIndexes) {
+                foreach (int index in SelectTargets(phonemes, byNote, noteIndex, selector)) {
+                    if (done.Add(index)) {
+                        PlanAlignForIndex(phonemes, index, settings, result, msToTicks);
+                    }
+                }
+            }
+            return result;
+        }
+
+        #region planning internals
+
+        static PlanResult Begin(IReadOnlyList<PhonemeSnapshot> phonemes, PluginSettings settings, Func<int, double, int> msToTicks) {
+            if (phonemes == null || phonemes.Count == 0 || settings == null) {
+                return null;
+            }
+            settings.Sanitize();
+            return new PlanResult { Snapshots = phonemes };
+        }
+
+        static Dictionary<int, List<int>> GroupByNote(IReadOnlyList<PhonemeSnapshot> phonemes) {
             var byNote = new Dictionary<int, List<int>>();
             for (int i = 0; i < phonemes.Count; i++) {
                 int noteIndex = phonemes[i].NoteIndex;
@@ -106,60 +203,60 @@ namespace OpenUtau.Plugin.ConsonantLength {
                     return byPos != 0 ? byPos : phonemes[a].Index.CompareTo(phonemes[b].Index);
                 });
             }
+            return byNote;
+        }
 
-            var done = new HashSet<int>();
+        static List<int> ResolveNotes(Dictionary<int, List<int>> byNote, IEnumerable<int> targetNotes, PlanResult result) {
             var noteIndexes = targetNotes == null
                 ? byNote.Keys.OrderBy(k => k).ToList()
                 : targetNotes.Where(k => byNote.ContainsKey(k)).Distinct().OrderBy(k => k).ToList();
-
             foreach (int noteIndex in noteIndexes) {
-                var indexes = byNote[noteIndex];
-                if (indexes.Count == 0) {
+                if (byNote[noteIndex].Count == 0) {
                     result.NotesWithoutPhonemes++;
-                    continue;
-                }
-                switch (settings.Mode) {
-                    case AdjustMode.CV: {
-                        int mainIndex = FindMainPhoneme(phonemes, indexes, noteIndex);
-                        if (mainIndex >= 0 && done.Add(mainIndex)) {
-                            PlanPreutter(phonemes, mainIndex, settings, matcher, result);
-                        }
-                        break;
-                    }
-                    case AdjustMode.CVVC: {
-                        int mainIndex = FindMainPhoneme(phonemes, indexes, noteIndex);
-                        if (mainIndex <= 0) {
-                            break;
-                        }
-                        int prevIndex = mainIndex - 1;
-                        var prev = phonemes[prevIndex];
-                        var main = phonemes[mainIndex];
-                        bool sameNote = prev.NoteIndex == noteIndex;
-                        if (prev.NoteIndex < 0 || prev.HasError || (!sameNote && !LooksLikeVc(prev.Name))) {
-                            // Only a VC style phoneme (attached to the note, or written as "a n") is a consonant carrier.
-                            // A plain CV phoneme of the previous note must not be touched.
-                            break;
-                        }
-                        if (prev.End != main.Position || prev.Duration <= 10) {
-                            break;
-                        }
-                        if (done.Add(prevIndex)) {
-                            PlanSlot(phonemes, prevIndex, settings, matcher, result, msToTicks);
-                        }
-                        break;
-                    }
-                    case AdjustMode.AI: {
-                        foreach (int index in indexes) {
-                            if (done.Add(index)) {
-                                PlanSlot(phonemes, index, settings, matcher, result, msToTicks);
-                            }
-                        }
-                        break;
-                    }
                 }
             }
-            return result;
+            return noteIndexes;
         }
+
+        static List<int> SelectTargets(
+            IReadOnlyList<PhonemeSnapshot> phonemes,
+            Dictionary<int, List<int>> byNote,
+            int noteIndex,
+            TargetSelector selector) {
+
+            if (!byNote.TryGetValue(noteIndex, out var indexes) || indexes.Count == 0) {
+                return EmptyList;
+            }
+            switch (selector) {
+                case TargetSelector.NoteOnset: {
+                    int mainIndex = FindMainPhoneme(phonemes, indexes, noteIndex);
+                    return mainIndex >= 0 ? new List<int> { mainIndex } : EmptyList;
+                }
+                case TargetSelector.PreviousVc: {
+                    int mainIndex = FindMainPhoneme(phonemes, indexes, noteIndex);
+                    if (mainIndex <= 0) {
+                        return EmptyList;
+                    }
+                    int prevIndex = mainIndex - 1;
+                    var prev = phonemes[prevIndex];
+                    var main = phonemes[mainIndex];
+                    // Only a VC style phoneme (attached to the note, or written as "a n") carries the consonant.
+                    // A plain CV phoneme of the previous note must not be touched.
+                    bool sameNote = prev.NoteIndex == noteIndex;
+                    if (prev.NoteIndex < 0 || prev.HasError || (!sameNote && !LooksLikeVc(prev.Name))) {
+                        return EmptyList;
+                    }
+                    if (prev.End != main.Position || prev.Duration <= 10) {
+                        return EmptyList;
+                    }
+                    return new List<int> { prevIndex };
+                }
+                default:
+                    return indexes;
+            }
+        }
+
+        static readonly List<int> EmptyList = new List<int>();
 
         /// <summary>The phoneme that carries the note onset: the last one starting at or before the note.</summary>
         static int FindMainPhoneme(IReadOnlyList<PhonemeSnapshot> phonemes, List<int> indexes, int noteIndex) {
@@ -310,9 +407,167 @@ namespace OpenUtau.Plugin.ConsonantLength {
             }
         }
 
+        /// <summary>p1 page: set the overlap (p1) of a phoneme.</summary>
+        static void PlanOverlapForIndex(
+            IReadOnlyList<PhonemeSnapshot> phonemes, int index, PluginSettings settings,
+            PhonemeMatcher matcher, PlanResult result) {
+
+            var ph = phonemes[index];
+            if (ph.HasError) {
+                return;
+            }
+            var match = matcher.Match(ph.Name, ph.MappedName);
+            if (match == null) {
+                result.Unmatched++;
+                return;
+            }
+            result.Matched++;
+            if (ph.Preutter < 0.1 && settings.P1Unit == P1Unit.FractionOfPreutter) {
+                result.Unchanged++;
+                return;
+            }
+            double newOverlap;
+            double ratio = 1.0;
+            switch (settings.P1Unit) {
+                case P1Unit.Ratio:
+                    ratio = Math.Clamp(settings.P1Ratio, 0.1, 3.0);
+                    newOverlap = ph.Overlap * ratio;
+                    break;
+                case P1Unit.Milliseconds:
+                    newOverlap = settings.P1Milliseconds;
+                    break;
+                default:
+                    newOverlap = ph.Preutter * settings.P1Fraction;
+                    break;
+            }
+            bool clamped = false;
+            if (newOverlap > ph.Preutter) {
+                newOverlap = ph.Preutter;
+                clamped = true;
+            }
+            if (newOverlap < -Math.Max(ph.Preutter, 50)) {
+                newOverlap = -Math.Max(ph.Preutter, 50);
+                clamped = true;
+            }
+            if (Math.Abs(newOverlap - ph.Overlap) < 0.1) {
+                result.Unchanged++;
+                return;
+            }
+            result.Changes.Add(new PlannedChange {
+                SnapshotIndex = index,
+                Kind = ChangeKind.Overlap,
+                PhonemeName = ph.Name,
+                MatchedPrefix = match.MatchedPrefix,
+                Ratio = ratio,
+                BeforeMs = ph.Overlap,
+                AfterMs = newOverlap,
+                NewOverlapDelta = (float)(newOverlap - ph.AutoOverlap),
+                HasOverlapChange = true,
+                Clamped = clamped,
+            });
+            if (clamped && result.Warnings.Count < 5) {
+                result.Warnings.Add($"\"{ph.Name}\" 的 p1 被限制在 0~p0（{ph.Preutter:0.0}ms）之间");
+            }
+        }
+
+        /// <summary>Alignment page: move the VC phoneme so that its p0 lands on the anchor.</summary>
+        static void PlanAlignForIndex(
+            IReadOnlyList<PhonemeSnapshot> phonemes, int index, PluginSettings settings,
+            PlanResult result, Func<int, double, int> msToTicks) {
+
+            if (index <= 0) {
+                return;
+            }
+            var vc = phonemes[index];
+            var prev = phonemes[index - 1];
+            if (vc.HasError || prev.HasError || vc.Duration <= 10) {
+                return;
+            }
+            int anchorTicks;
+            string anchorName;
+            switch (settings.AlignAnchor) {
+                case AlignAnchor.PreviousPosition:
+                    anchorTicks = prev.Position;
+                    anchorName = "前一个音素的位置线";
+                    break;
+                case AlignAnchor.PreviousEnd:
+                    anchorTicks = prev.End;
+                    anchorName = "前一个音素的终点";
+                    break;
+                default:
+                    anchorTicks = prev.Position - msToTicks(prev.Position, prev.Preutter);
+                    anchorName = "前一个音素的 pre 线";
+                    break;
+            }
+            double msPerTick = vc.Duration > 0 ? vc.DurationMs / vc.Duration : 0;
+            bool clamped = false;
+
+            if (settings.AlignMode == AlignMode.MoveP0Only) {
+                // Keep the phoneme where it is, change preutter so that p0 = anchor.
+                int preutterTicks = vc.Position - anchorTicks;
+                double newPreutter = preutterTicks * msPerTick;
+                if (newPreutter > settings.MaxLengthMs) {
+                    newPreutter = settings.MaxLengthMs;
+                    clamped = true;
+                }
+                if (newPreutter < 0) {
+                    newPreutter = 0;
+                    clamped = true;
+                }
+                if (Math.Abs(newPreutter - vc.Preutter) < 0.2) {
+                    result.Unchanged++;
+                    return;
+                }
+                result.Changes.Add(new PlannedChange {
+                    SnapshotIndex = index,
+                    Kind = ChangeKind.Preutter,
+                    PhonemeName = vc.Name,
+                    MatchedPrefix = anchorName,
+                    Ratio = 1.0,
+                    BeforeMs = vc.Preutter,
+                    AfterMs = newPreutter,
+                    NewPreutterDelta = (float)(newPreutter - vc.AutoPreutter),
+                    HasOverlapChange = true,
+                    NewOverlapDelta = (float)(Math.Min(vc.Overlap, newPreutter) - vc.AutoOverlap),
+                    Clamped = clamped,
+                });
+                return;
+            }
+
+            int preutterTicksOfVc = msToTicks(vc.Position, vc.Preutter);
+            int newPosition = anchorTicks + preutterTicksOfVc;
+            int lowerBound = prev.Position + 10;
+            if (newPosition < lowerBound) {
+                newPosition = lowerBound;
+                clamped = true;
+            }
+            newPosition = Math.Min(newPosition, vc.End - 10);
+            if (newPosition == vc.Position) {
+                result.Unchanged++;
+                return;
+            }
+            int newOffset = vc.OldOffset + (newPosition - vc.Position);
+            result.Changes.Add(new PlannedChange {
+                SnapshotIndex = index,
+                Kind = ChangeKind.Position,
+                PhonemeName = vc.Name,
+                MatchedPrefix = anchorName,
+                Ratio = 1.0,
+                BeforeMs = vc.PositionMs,
+                AfterMs = vc.PositionMs + (newPosition - vc.Position) * msPerTick,
+                NewOffset = newOffset,
+                Clamped = clamped,
+            });
+            if (clamped && result.Warnings.Count < 5) {
+                result.Warnings.Add($"\"{vc.Name}\" 被前一个音素限制住了，无法完全对齐到{anchorName}");
+            }
+        }
+
         static double EffectiveRatio(MatchResult match, PluginSettings settings) {
             double ratio = match.RuleRatio * settings.MasterRatio;
             return Math.Clamp(ratio, 0.1, 3.0);
         }
+
+        #endregion
     }
 }

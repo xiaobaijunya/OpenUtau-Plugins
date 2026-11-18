@@ -55,6 +55,12 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
             TestMasterRatio();
             TestDisabledRule();
             TestSilence();
+            TestOverlap();
+            TestOverlapAbsoluteAndFraction();
+            TestOverlapClamp();
+            TestAlignPreviousPosition();
+            TestAlignPreviousPreLineClamped();
+            TestAlignMoveP0Only();
 
             Console.WriteLine($"{checks - failures}/{checks} checks passed.");
             Environment.ExitCode = failures == 0 ? 0 : 1;
@@ -277,6 +283,108 @@ namespace OpenUtau.Plugin.ConsonantLength.Tests {
             };
             var plan = ConsonantPlanner.Plan(snaps, new[] { 0 }, settings, MsToTicks);
             Check(plan.Changes.Count == 0, "disabled rule: no change");
+        }
+
+        static List<PhonemeSnapshot> CvvcSnapshots() {
+            return new List<PhonemeSnapshot> {
+                new PhonemeSnapshot { NoteIndex = 0, Index = 0, Name = "a", Position = 0, Duration = 480,
+                    DurationMs = 500, Preutter = 50, AutoPreutter = 50, Overlap = 10, AutoOverlap = 10, NotePosition = 0 },
+                new PhonemeSnapshot { NoteIndex = 1, Index = 0, Name = "a n", Position = 360, Duration = 120,
+                    PositionMs = 375, DurationMs = 125, Preutter = 25, AutoPreutter = 20, Overlap = 5, AutoOverlap = 5,
+                    NotePosition = 480, PreviousPosition = 0 },
+                new PhonemeSnapshot { NoteIndex = 1, Index = 1, Name = "a", Position = 480, Duration = 480,
+                    PositionMs = 500, DurationMs = 500, Preutter = 50, AutoPreutter = 50, NotePosition = 480 },
+            };
+        }
+
+        static void TestOverlap() {
+            var settings = Settings(AdjustMode.CV, ("n", 0.7));
+            settings.P1Target = P1Target.PreviousVc;
+            settings.P1Unit = P1Unit.Ratio;
+            settings.P1Ratio = 2.0;
+            var plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "p1 ratio: one change");
+            if (plan.Changes.Count == 1) {
+                var c = plan.Changes[0];
+                Check(c.Kind == ChangeKind.Overlap, "p1 ratio: overlap kind");
+                Check(c.SnapshotIndex == 1, "p1 ratio: VC phoneme edited");
+                CheckClose(10, c.AfterMs, "p1 ratio: 5ms * 2");
+                CheckClose(5, c.NewOverlapDelta, "p1 ratio: delta vs autoOverlap");
+                Check(!c.HasOverlapChange == false, "p1 ratio: overlap flag");
+            }
+        }
+
+        static void TestOverlapAbsoluteAndFraction() {
+            var settings = Settings(AdjustMode.CV, ("n", 0.7));
+            settings.P1Target = P1Target.PreviousVc;
+            settings.P1Unit = P1Unit.Milliseconds;
+            settings.P1Milliseconds = 18;
+            var plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 18) < 0.01, "p1 absolute: 18ms");
+
+            settings.P1Unit = P1Unit.FractionOfPreutter;
+            settings.P1Fraction = 0.4;
+            plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1 && Math.Abs(plan.Changes[0].AfterMs - 10) < 0.01, "p1 fraction: 25ms * 0.4");
+        }
+
+        static void TestOverlapClamp() {
+            var settings = Settings(AdjustMode.CV, ("n", 0.7));
+            settings.P1Target = P1Target.PreviousVc;
+            settings.P1Unit = P1Unit.Milliseconds;
+            settings.P1Milliseconds = 200;
+            var plan = ConsonantPlanner.PlanOverlap(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "p1 clamp: one change");
+            if (plan.Changes.Count == 1) {
+                CheckClose(25, plan.Changes[0].AfterMs, "p1 clamp: limited by preutter");
+                Check(plan.Changes[0].Clamped, "p1 clamp: flagged");
+            }
+        }
+
+        static void TestAlignPreviousPosition() {
+            var settings = Settings(AdjustMode.CVVC, ("n", 0.7));
+            settings.AlignTarget = AlignTarget.PreviousVc;
+            settings.AlignAnchor = AlignAnchor.PreviousPosition;
+            settings.AlignMode = AlignMode.MovePhoneme;
+            var plan = ConsonantPlanner.PlanAlign(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "align: one change");
+            if (plan.Changes.Count == 1) {
+                var c = plan.Changes[0];
+                Check(c.Kind == ChangeKind.Position, "align: position kind");
+                Check(c.SnapshotIndex == 1, "align: VC phoneme moved");
+                // anchor 0 + preutter 25ms (24 ticks) = 24; offset = 24 - 360
+                Check(c.NewOffset == -336, "align: p0 lands on previous position line");
+            }
+        }
+
+        static void TestAlignPreviousPreLineClamped() {
+            var settings = Settings(AdjustMode.CVVC, ("n", 0.7));
+            settings.AlignTarget = AlignTarget.PreviousVc;
+            settings.AlignAnchor = AlignAnchor.PreviousPreLine;
+            settings.AlignMode = AlignMode.MovePhoneme;
+            var plan = ConsonantPlanner.PlanAlign(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "align pre line: one change");
+            if (plan.Changes.Count == 1) {
+                var c = plan.Changes[0];
+                Check(c.Clamped, "align pre line: clamped by previous phoneme");
+                Check(c.NewOffset == -350, "align pre line: clamps to prev.position + 10");
+            }
+        }
+
+        static void TestAlignMoveP0Only() {
+            var settings = Settings(AdjustMode.CVVC, ("n", 0.7));
+            settings.AlignTarget = AlignTarget.PreviousVc;
+            settings.AlignAnchor = AlignAnchor.PreviousPosition;
+            settings.AlignMode = AlignMode.MoveP0Only;
+            settings.MaxLengthMs = 500;
+            var plan = ConsonantPlanner.PlanAlign(CvvcSnapshots(), new[] { 0, 1 }, settings, MsToTicks);
+            Check(plan.Changes.Count == 1, "align p0 only: one change");
+            if (plan.Changes.Count == 1) {
+                var c = plan.Changes[0];
+                Check(c.Kind == ChangeKind.Preutter, "align p0 only: preutter kind");
+                CheckClose(375, c.AfterMs, "align p0 only: preutter = position - anchor");
+                CheckClose(355, c.NewPreutterDelta, "align p0 only: delta vs autoPreutter");
+            }
         }
 
         static void TestSilence() {

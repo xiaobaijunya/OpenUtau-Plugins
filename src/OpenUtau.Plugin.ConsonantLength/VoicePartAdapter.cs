@@ -77,6 +77,10 @@ namespace OpenUtau.Plugin.ConsonantLength {
                             docManager.ExecuteCmd(new PhonemeOffsetCommand(part, note, phoneme.index, change.NewOffset));
                             applied++;
                             break;
+                        case ChangeKind.Overlap:
+                            docManager.ExecuteCmd(new PhonemeOverlapCommand(part, note, phoneme.index, change.NewOverlapDelta));
+                            applied++;
+                            break;
                     }
                 }
             } finally {

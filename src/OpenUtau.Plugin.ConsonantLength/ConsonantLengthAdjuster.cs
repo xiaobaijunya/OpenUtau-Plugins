@@ -12,7 +12,8 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
     /// <summary>
     /// OpenUtau external batch edit ("外部插件" in the piano roll right click menu).
-    /// Opens a small configuration window, then applies the consonant timing changes.
+    /// Opens a small configuration window with three pages:
+    /// consonant length (CV / CVVC / AI), p1 (overlap), and CVVC p0 alignment.
     /// </summary>
     public class ConsonantLengthAdjuster : BatchEdit {
 
@@ -56,8 +57,25 @@ namespace OpenUtau.Plugin.ConsonantLength {
             return partNotes;
         }
 
-        /// <summary>Builds the plan without touching the document.</summary>
         internal static PlanResult Plan(UProject project, UVoicePart part, IReadOnlyList<UNote> selectedNotes, PluginSettings settings) {
+            return RunPlan(project, part, selectedNotes, settings,
+                (snapshots, noteIndexes, msToTicks) => ConsonantPlanner.Plan(snapshots, noteIndexes, settings, msToTicks));
+        }
+
+        internal static PlanResult PlanOverlap(UProject project, UVoicePart part, IReadOnlyList<UNote> selectedNotes, PluginSettings settings) {
+            return RunPlan(project, part, selectedNotes, settings,
+                (snapshots, noteIndexes, msToTicks) => ConsonantPlanner.PlanOverlap(snapshots, noteIndexes, settings, msToTicks));
+        }
+
+        internal static PlanResult PlanAlign(UProject project, UVoicePart part, IReadOnlyList<UNote> selectedNotes, PluginSettings settings) {
+            return RunPlan(project, part, selectedNotes, settings,
+                (snapshots, noteIndexes, msToTicks) => ConsonantPlanner.PlanAlign(snapshots, noteIndexes, settings, msToTicks));
+        }
+
+        static PlanResult RunPlan(
+            UProject project, UVoicePart part, IReadOnlyList<UNote> selectedNotes, PluginSettings settings,
+            Func<IReadOnlyList<PhonemeSnapshot>, IEnumerable<int>, Func<int, double, int>, PlanResult> planner) {
+
             var partNotes = GetPartNotes(part);
             var snapshots = VoicePartAdapter.BuildSnapshots(part, partNotes);
             var targets = GetTargetNotes(part, selectedNotes, settings);
@@ -71,10 +89,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 .ToList();
             int partPosition = part.position;
             var timeAxis = project.timeAxis;
-            return ConsonantPlanner.Plan(
+            return planner(
                 snapshots,
                 targetIndexes,
-                settings,
                 (refTick, ms) => timeAxis.MsToTickAt(ms, partPosition + refTick));
         }
 

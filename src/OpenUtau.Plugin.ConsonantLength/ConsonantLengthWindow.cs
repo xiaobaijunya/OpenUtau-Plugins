@@ -15,11 +15,17 @@ using OpenUtau.Core.Ustx;
 
 namespace OpenUtau.Plugin.ConsonantLength {
 
-    /// <summary>Configuration window of the consonant length adjuster.</summary>
+    /// <summary>Configuration window of the consonant length adjuster (three pages + rules).</summary>
     internal sealed class ConsonantLengthWindow : Window {
 
         static readonly IBrush CardBorderBrush = new SolidColorBrush(Color.FromArgb(72, 128, 128, 128));
         static readonly IBrush CardBackgroundBrush = new SolidColorBrush(Color.FromArgb(10, 128, 128, 128));
+        static readonly FontFamily MonoFont = new FontFamily("Consolas,Menlo,DejaVu Sans Mono,monospace");
+
+        const int TabDuration = 0;
+        const int TabOverlap = 1;
+        const int TabAlign = 2;
+        const int TabRules = 3;
 
         readonly UProject project;
         readonly UVoicePart part;
@@ -27,32 +33,46 @@ namespace OpenUtau.Plugin.ConsonantLength {
         readonly DocManager docManager;
         readonly PluginSettings settings;
 
+        // shared
+        readonly TabControl tabs = new TabControl();
+        readonly ComboBox scopeBox = new ComboBox { MinWidth = 150 };
+        readonly TextBlock scopeHint = new TextBlock { FontSize = 12, Opacity = 0.62, VerticalAlignment = VerticalAlignment.Center };
+        readonly TextBlock statusText = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+        readonly Button applyButton = new Button { Content = "应用", MinWidth = 120, Margin = new Thickness(8, 0, 0, 0) };
+        readonly DispatcherTimer previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+
+        // duration page
         readonly RadioButton cvRadio = new RadioButton { Content = "CV 模式", GroupName = "cl-mode" };
         readonly RadioButton cvvcRadio = new RadioButton { Content = "CVVC 模式", GroupName = "cl-mode" };
         readonly RadioButton aiRadio = new RadioButton { Content = "AI 模式", GroupName = "cl-mode" };
         readonly TextBlock modeDescription = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.72, FontSize = 12 };
-
-        readonly ComboBox scopeBox = new ComboBox { MinWidth = 150 };
         readonly NumericUpDown masterBox = new NumericUpDown();
         readonly NumericUpDown minBox = new NumericUpDown();
         readonly NumericUpDown maxBox = new NumericUpDown();
         readonly CheckBox overlapCheck = new CheckBox { Content = "同时缩放 overlap（p1 点）" };
-        readonly TextBlock scopeHint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
+        readonly TextBlock durationPreview = PreviewText();
 
-        readonly ComboBox presetBox = new ComboBox { MinWidth = 230 };
+        // p1 page
+        readonly ComboBox p1TargetBox = new ComboBox { MinWidth = 230 };
+        readonly ComboBox p1UnitBox = new ComboBox { MinWidth = 170 };
+        readonly NumericUpDown p1ValueBox = new NumericUpDown { Width = 130 };
+        readonly TextBlock p1Hint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
+        readonly TextBlock overlapPreview = PreviewText();
+
+        // align page
+        readonly ComboBox alignTargetBox = new ComboBox { MinWidth = 260 };
+        readonly ComboBox alignAnchorBox = new ComboBox { MinWidth = 260 };
+        readonly ComboBox alignModeBox = new ComboBox { MinWidth = 260 };
+        readonly TextBlock alignHint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
+        readonly TextBlock alignPreview = PreviewText();
+
+        // rules page
+        readonly ComboBox presetBox = new ComboBox { MinWidth = 240 };
         readonly WrapPanel rulesPanel = new WrapPanel { Orientation = Orientation.Horizontal };
         readonly TextBlock rulesHint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
 
-        readonly TextBlock previewText = new TextBlock {
-            FontFamily = new FontFamily("Consolas,Menlo,DejaVu Sans Mono,monospace"),
-            FontSize = 12,
-            TextWrapping = TextWrapping.NoWrap,
-        };
-        readonly TextBlock statusText = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-
-        readonly DispatcherTimer previewTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-
         ConsonantRule focusAfterRebuild;
+        bool suppressControlEvents;
 
         public ConsonantLengthWindow(UProject project, UVoicePart part, List<UNote> selectedNotes, DocManager docManager) {
             this.project = project;
@@ -63,9 +83,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
             this.settings.Sanitize();
 
             Title = "辅音时长调整 · Consonant Length Adjuster";
-            Width = 880;
-            Height = 730;
-            MinWidth = 720;
+            Width = 900;
+            Height = 720;
+            MinWidth = 760;
             MinHeight = 560;
             CanResize = true;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -74,6 +94,8 @@ namespace OpenUtau.Plugin.ConsonantLength {
             UpdateModeDescription();
             UpdateRulesPanel();
             UpdateScopeHint();
+            UpdateP1Hint();
+            UpdateAlignHint();
             previewTimer.Tick += (s, e) => {
                 previewTimer.Stop();
                 UpdatePreview();
@@ -81,51 +103,77 @@ namespace OpenUtau.Plugin.ConsonantLength {
             UpdatePreview();
         }
 
+        static TextBlock PreviewText() => new TextBlock {
+            FontFamily = MonoFont,
+            FontSize = 12,
+            TextWrapping = TextWrapping.NoWrap,
+        };
+
         #region layout
 
         void BuildUi() {
             var root = new Grid {
-                Margin = new Thickness(18, 14, 18, 14),
-                RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto"),
+                Margin = new Thickness(16, 12, 16, 12),
+                RowDefinitions = new RowDefinitions("Auto,*,Auto"),
             };
 
-            var header = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 10) };
-            header.Children.Add(new TextBlock {
-                Text = "辅音时长调整",
-                FontSize = 20,
-                FontWeight = FontWeight.Bold,
-            });
-            header.Children.Add(new TextBlock {
+            var header = BuildHeader();
+            Grid.SetRow(header, 0);
+            root.Children.Add(header);
+
+            tabs.Items.Add(new TabItem { Header = "辅音时长", Content = BuildDurationTab() });
+            tabs.Items.Add(new TabItem { Header = "p1 · overlap", Content = BuildOverlapTab() });
+            tabs.Items.Add(new TabItem { Header = "CVVC · p0 对齐", Content = BuildAlignTab() });
+            tabs.Items.Add(new TabItem { Header = "规则", Content = BuildRulesTab() });
+            tabs.SelectedIndex = TabDuration;
+            tabs.SelectionChanged += (s, e) => {
+                UpdateApplyState();
+                UpdatePreview();
+            };
+            Grid.SetRow(tabs, 1);
+            root.Children.Add(tabs);
+
+            var footer = BuildFooter();
+            Grid.SetRow(footer, 2);
+            root.Children.Add(footer);
+
+            Content = root;
+            KeyDown += OnWindowKeyDown;
+        }
+
+        Control BuildHeader() {
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 0, 0, 10) };
+            var title = new StackPanel { Spacing = 2 };
+            title.Children.Add(new TextBlock { Text = "辅音时长调整", FontSize = 20, FontWeight = FontWeight.Bold });
+            title.Children.Add(new TextBlock {
                 Text = DescribeTrack(),
                 FontSize = 12,
                 Opacity = 0.7,
                 TextWrapping = TextWrapping.Wrap,
             });
-            Grid.SetRow(header, 0);
-            root.Children.Add(header);
+            Grid.SetColumn(title, 0);
+            grid.Children.Add(title);
 
-            var modeCard = BuildModeCard();
-            Grid.SetRow(modeCard, 1);
-            root.Children.Add(modeCard);
+            var scope = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+            scope.Children.Add(new TextBlock { Text = "作用范围", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            scopeBox.ItemsSource = new[] { "仅选中的音符", "全部音符" };
+            scopeBox.SelectedIndex = settings.Scope == NoteScope.All ? 1 : 0;
+            scopeBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.Scope = scopeBox.SelectedIndex == 1 ? NoteScope.All : NoteScope.Selected;
+                UpdateScopeHint();
+                SchedulePreview();
+            };
+            scope.Children.Add(scopeBox);
+            Grid.SetColumn(scope, 1);
+            grid.Children.Add(scope);
 
-            var paramCard = BuildParamCard();
-            Grid.SetRow(paramCard, 2);
-            root.Children.Add(paramCard);
-
-            var ruleCard = BuildRuleCard();
-            Grid.SetRow(ruleCard, 3);
-            root.Children.Add(ruleCard);
-
-            var previewCard = BuildPreviewCard();
-            Grid.SetRow(previewCard, 4);
-            root.Children.Add(previewCard);
-
-            var buttons = BuildButtonRow();
-            Grid.SetRow(buttons, 5);
-            root.Children.Add(buttons);
-
-            Content = root;
-            KeyDown += OnWindowKeyDown;
+            var wrapper = new StackPanel { Spacing = 2 };
+            wrapper.Children.Add(grid);
+            wrapper.Children.Add(scopeHint);
+            return wrapper;
         }
 
         string DescribeTrack() {
@@ -158,7 +206,20 @@ namespace OpenUtau.Plugin.ConsonantLength {
             };
         }
 
-        Control BuildModeCard() {
+        Control Page(params Control[] children) {
+            var panel = new StackPanel { Spacing = 0, Margin = new Thickness(0, 10, 0, 0) };
+            foreach (var child in children) {
+                panel.Children.Add(child);
+            }
+            return new ScrollViewer {
+                Content = panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(2, 0, 8, 0),
+            };
+        }
+
+        Control BuildDurationTab() {
             cvRadio.IsChecked = settings.Mode == AdjustMode.CV;
             cvvcRadio.IsChecked = settings.Mode == AdjustMode.CVVC;
             aiRadio.IsChecked = settings.Mode == AdjustMode.AI;
@@ -171,23 +232,12 @@ namespace OpenUtau.Plugin.ConsonantLength {
             modes.Children.Add(cvvcRadio);
             modes.Children.Add(aiRadio);
 
-            var content = new StackPanel { Spacing = 6 };
-            content.Children.Add(modes);
-            content.Children.Add(modeDescription);
-            return Card("① 调整模式", null, content);
-        }
+            var modeContent = new StackPanel { Spacing = 6 };
+            modeContent.Children.Add(modes);
+            modeContent.Children.Add(modeDescription);
 
-        Control BuildParamCard() {
-            var scopeLabel = new TextBlock { Text = "作用范围", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            scopeBox.ItemsSource = new[] { "仅选中的音符", "全部音符" };
-            scopeBox.SelectedIndex = settings.Scope == NoteScope.All ? 1 : 0;
-            scopeBox.SelectionChanged += (s, e) => {
-                settings.Scope = scopeBox.SelectedIndex == 1 ? NoteScope.All : NoteScope.Selected;
-                UpdateScopeHint();
-                SchedulePreview();
-            };
-            scopeBox.Margin = new Thickness(0, 0, 18, 0);
-
+            var masterRow = new StackPanel { Orientation = Orientation.Horizontal };
+            masterRow.Children.Add(new TextBlock { Text = "整体倍率", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             masterBox.Minimum = 0.1m;
             masterBox.Maximum = 3.0m;
             masterBox.Increment = 0.05m;
@@ -195,13 +245,16 @@ namespace OpenUtau.Plugin.ConsonantLength {
             masterBox.Value = (decimal)settings.MasterRatio;
             masterBox.Width = 110;
             masterBox.ValueChanged += (s, e) => {
-                if (masterBox.Value.HasValue) {
-                    settings.MasterRatio = (double)masterBox.Value.Value;
-                    SchedulePreview();
+                if (suppressControlEvents || !masterBox.Value.HasValue) {
+                    return;
                 }
+                settings.MasterRatio = (double)masterBox.Value.Value;
+                SchedulePreview();
             };
-            masterBox.Margin = new Thickness(0, 0, 18, 0);
+            masterRow.Children.Add(masterBox);
 
+            var clampRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            clampRow.Children.Add(new TextBlock { Text = "最短(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             minBox.Minimum = 0m;
             minBox.Maximum = 500m;
             minBox.Increment = 5m;
@@ -209,13 +262,14 @@ namespace OpenUtau.Plugin.ConsonantLength {
             minBox.Value = (decimal)settings.MinLengthMs;
             minBox.Width = 92;
             minBox.ValueChanged += (s, e) => {
-                if (minBox.Value.HasValue) {
-                    settings.MinLengthMs = (double)minBox.Value.Value;
-                    SchedulePreview();
+                if (suppressControlEvents || !minBox.Value.HasValue) {
+                    return;
                 }
+                settings.MinLengthMs = (double)minBox.Value.Value;
+                SchedulePreview();
             };
-            minBox.Margin = new Thickness(0, 0, 18, 0);
-
+            clampRow.Children.Add(minBox);
+            clampRow.Children.Add(new TextBlock { Text = "最长(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 8, 0) });
             maxBox.Minimum = 10m;
             maxBox.Maximum = 2000m;
             maxBox.Increment = 10m;
@@ -223,54 +277,259 @@ namespace OpenUtau.Plugin.ConsonantLength {
             maxBox.Value = (decimal)settings.MaxLengthMs;
             maxBox.Width = 92;
             maxBox.ValueChanged += (s, e) => {
-                if (maxBox.Value.HasValue) {
-                    settings.MaxLengthMs = (double)maxBox.Value.Value;
-                    SchedulePreview();
+                if (suppressControlEvents || !maxBox.Value.HasValue) {
+                    return;
                 }
+                settings.MaxLengthMs = (double)maxBox.Value.Value;
+                SchedulePreview();
             };
-            maxBox.Margin = new Thickness(0, 0, 18, 0);
+            clampRow.Children.Add(maxBox);
 
             overlapCheck.IsChecked = settings.ScaleOverlap;
             overlapCheck.VerticalAlignment = VerticalAlignment.Center;
+            overlapCheck.Margin = new Thickness(20, 0, 0, 0);
             overlapCheck.Click += (s, e) => {
                 settings.ScaleOverlap = overlapCheck.IsChecked == true;
                 SchedulePreview();
             };
+            clampRow.Children.Add(overlapCheck);
 
-            var masterLabel = new TextBlock { Text = "整体倍率", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            var minLabel = new TextBlock { Text = "最短(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            var maxLabel = new TextBlock { Text = "最长(ms)", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+            var paramContent = new StackPanel { Spacing = 0 };
+            paramContent.Children.Add(masterRow);
+            paramContent.Children.Add(clampRow);
 
-            var row1 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
-            row1.Children.Add(minLabel);
-            row1.Children.Add(minBox);
-            row1.Children.Add(maxLabel);
-            row1.Children.Add(maxBox);
-            row1.Children.Add(overlapCheck);
+            var previewCard = Card("③ 预览", "改动会以「规则倍率 × 整体倍率」计算，先预览再应用。", new ScrollViewer {
+                Content = durationPreview,
+                MaxHeight = 200,
+                MinHeight = 80,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            });
 
-            var content = new StackPanel { Spacing = 8 };
-            var firstRow = new StackPanel { Orientation = Orientation.Horizontal };
-            firstRow.Children.Add(scopeLabel);
-            firstRow.Children.Add(scopeBox);
-            firstRow.Children.Add(masterLabel);
-            firstRow.Children.Add(masterBox);
-            content.Children.Add(firstRow);
-            content.Children.Add(row1);
-            content.Children.Add(scopeHint);
-            return Card("② 参数", "整体倍率会与下面每条规则的倍率相乘；最短/最长用于防止过度调整。", content);
+            return Page(
+                Card("① 调整模式", null, modeContent),
+                Card("② 参数", "整体倍率会与每条规则的倍率相乘；最短/最长用于防止过度调整。", paramContent),
+                previewCard);
         }
 
-        Control BuildRuleCard() {
-            presetBox.ItemsSource = ConsonantPresets.All
-                .Select(p => new PresetItem(p))
-                .ToList();
+        Control BuildOverlapTab() {
+            p1TargetBox.ItemsSource = new[] {
+                "音符起始辅音（CV 音源）",
+                "前一个 VC 音素（CVVC 音源）",
+                "全部匹配音素（AI 音源）",
+            };
+            p1TargetBox.SelectedIndex = (int)settings.P1Target;
+            p1TargetBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.P1Target = (P1Target)Math.Clamp(p1TargetBox.SelectedIndex, 0, 2);
+                UpdateP1Hint();
+                SchedulePreview();
+            };
+
+            p1UnitBox.ItemsSource = new[] { "倍率 ×（p1 = 当前 p1 × 倍率）", "绝对值（直接设为 ms）", "占 p0 的比例（p1 = p0 × 比例）" };
+            p1UnitBox.SelectedIndex = (int)settings.P1Unit;
+            p1UnitBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.P1Unit = (P1Unit)Math.Clamp(p1UnitBox.SelectedIndex, 0, 2);
+                ConfigureP1ValueBox();
+                UpdateP1Hint();
+                SchedulePreview();
+            };
+
+            ConfigureP1ValueBox();
+            p1ValueBox.ValueChanged += (s, e) => {
+                if (suppressControlEvents || !p1ValueBox.Value.HasValue) {
+                    return;
+                }
+                double value = (double)p1ValueBox.Value.Value;
+                switch (settings.P1Unit) {
+                    case P1Unit.Ratio:
+                        settings.P1Ratio = value;
+                        break;
+                    case P1Unit.Milliseconds:
+                        settings.P1Milliseconds = value;
+                        break;
+                    default:
+                        settings.P1Fraction = value;
+                        break;
+                }
+                UpdateP1Hint();
+                SchedulePreview();
+            };
+
+            var targetRow = new StackPanel { Orientation = Orientation.Horizontal };
+            targetRow.Children.Add(new TextBlock { Text = "作用对象", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            targetRow.Children.Add(p1TargetBox);
+
+            var unitRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            unitRow.Children.Add(new TextBlock { Text = "设置方式", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            unitRow.Children.Add(p1UnitBox);
+            unitRow.Children.Add(new TextBlock { Text = "数值", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 8, 0) });
+            unitRow.Children.Add(p1ValueBox);
+
+            var content = new StackPanel { Spacing = 6 };
+            content.Children.Add(targetRow);
+            content.Children.Add(unitRow);
+            content.Children.Add(p1Hint);
+
+            return Page(
+                Card("① 作用对象与取值",
+                    "p1 是 envelope 的第二个点（overlap）。这里只改 p1，不改 p0；按「规则」页的前缀匹配辅音，结果限制在 0 ~ p0 之间。",
+                    content),
+                Card("② 预览", null, new ScrollViewer {
+                    Content = overlapPreview,
+                    MaxHeight = 260,
+                    MinHeight = 90,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                }));
+        }
+
+        void ConfigureP1ValueBox() {
+            suppressControlEvents = true;
+            switch (settings.P1Unit) {
+                case P1Unit.Ratio:
+                    p1ValueBox.Minimum = 0.1m;
+                    p1ValueBox.Maximum = 3.0m;
+                    p1ValueBox.Increment = 0.05m;
+                    p1ValueBox.FormatString = "0.00";
+                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Ratio, 0.1, 3.0);
+                    break;
+                case P1Unit.Milliseconds:
+                    p1ValueBox.Minimum = -200m;
+                    p1ValueBox.Maximum = 400m;
+                    p1ValueBox.Increment = 5m;
+                    p1ValueBox.FormatString = "0.#";
+                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Milliseconds, -200, 400);
+                    break;
+                default:
+                    p1ValueBox.Minimum = -1m;
+                    p1ValueBox.Maximum = 1m;
+                    p1ValueBox.Increment = 0.05m;
+                    p1ValueBox.FormatString = "0.00";
+                    p1ValueBox.Value = (decimal)Math.Clamp(settings.P1Fraction, -1, 1);
+                    break;
+            }
+            suppressControlEvents = false;
+        }
+
+        void UpdateP1Hint() {
+            string target = p1TargetBox.SelectedIndex switch {
+                1 => "前一个 VC 音素（形如 a n，紧邻当前音符的元音音素）",
+                2 => "当前音符上所有匹配规则的音素",
+                _ => "音符起始辅音（音符起点处的音素）",
+            };
+            string unit = settings.P1Unit switch {
+                P1Unit.Ratio => $"p1 × {settings.P1Ratio:0.00}",
+                P1Unit.Milliseconds => $"p1 = {settings.P1Milliseconds:0.#} ms",
+                _ => $"p1 = p0 × {settings.P1Fraction:0.00}",
+            };
+            p1Hint.Text = $"当前：{target}，{unit}。结果会被限制在 0 ~ p0 之间。";
+        }
+
+        Control BuildAlignTab() {
+            alignTargetBox.ItemsSource = new[] {
+                "前一个 VC 音素（a n，CVVC 的辅音）",
+                "当前音符的起始辅音（CV）",
+            };
+            alignTargetBox.SelectedIndex = (int)settings.AlignTarget;
+            alignTargetBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.AlignTarget = (AlignTarget)Math.Clamp(alignTargetBox.SelectedIndex, 0, 1);
+                UpdateAlignHint();
+                SchedulePreview();
+            };
+
+            alignAnchorBox.ItemsSource = new[] {
+                "前一个音素的 pre 线（prev.position − prev.preutter）",
+                "前一个音素的位置线（prev.position）",
+                "前一个音素的终点（prev.End）",
+            };
+            alignAnchorBox.SelectedIndex = (int)settings.AlignAnchor;
+            alignAnchorBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.AlignAnchor = (AlignAnchor)Math.Clamp(alignAnchorBox.SelectedIndex, 0, 2);
+                UpdateAlignHint();
+                SchedulePreview();
+            };
+
+            alignModeBox.ItemsSource = new[] {
+                "移动整个音素（保持辅音长度，p0 落到锚点）",
+                "只移动 p0（改变 preutter，音素位置不变）",
+            };
+            alignModeBox.SelectedIndex = (int)settings.AlignMode;
+            alignModeBox.SelectionChanged += (s, e) => {
+                if (suppressControlEvents) {
+                    return;
+                }
+                settings.AlignMode = (AlignMode)Math.Clamp(alignModeBox.SelectedIndex, 0, 1);
+                UpdateAlignHint();
+                SchedulePreview();
+            };
+
+            var targetRow = new StackPanel { Orientation = Orientation.Horizontal };
+            targetRow.Children.Add(new TextBlock { Text = "目标音素", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            targetRow.Children.Add(alignTargetBox);
+
+            var anchorRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            anchorRow.Children.Add(new TextBlock { Text = "对齐到", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            anchorRow.Children.Add(alignAnchorBox);
+
+            var modeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+            modeRow.Children.Add(new TextBlock { Text = "移动方式", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            modeRow.Children.Add(alignModeBox);
+
+            var content = new StackPanel { Spacing = 6 };
+            content.Children.Add(targetRow);
+            content.Children.Add(anchorRow);
+            content.Children.Add(modeRow);
+            content.Children.Add(alignHint);
+
+            return Page(
+                Card("① CVVC 辅音对齐",
+                    "只处理 CVVC 的 VC 音素（形如 a n，或附着在音符上的前一个音素）。用于修正在 OpenUtau 里 CVVC 辅音位置不对的情况。",
+                    content),
+                Card("② 预览", "「p0」= 音素起点 − preutter。对齐后 p0 会落在所选的位置上。", new ScrollViewer {
+                    Content = alignPreview,
+                    MaxHeight = 300,
+                    MinHeight = 90,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                }));
+        }
+
+        void UpdateAlignHint() {
+            string target = settings.AlignTarget == AlignTarget.NoteOnset
+                ? "当前音符的起始辅音（CV）"
+                : "前一个 VC 音素（a n）";
+            string anchor = alignAnchorBox.SelectedIndex switch {
+                1 => "前一个音素的位置线（prev.position）",
+                2 => "前一个音素的终点（prev.End）",
+                _ => "前一个音素的 pre 线（prev.position − prev.preutter）",
+            };
+            string mode = settings.AlignMode == AlignMode.MoveP0Only
+                ? "只移动 p0，改变 preutter（音素位置不变）"
+                : "移动整个音素，preutter 不变";
+            alignHint.Text = $"当前：把「{target}」的 p0 移动到{anchor}，{mode}。";
+        }
+
+        Control BuildRulesTab() {
+            presetBox.ItemsSource = ConsonantPresets.All.Select(p => new PresetItem(p)).ToList();
             presetBox.SelectedIndex = 0;
 
             var mergeButton = new Button { Content = "合并载入", Margin = new Thickness(6, 0, 0, 0) };
             mergeButton.Click += (s, e) => LoadPreset(replace: false);
             var replaceButton = new Button { Content = "替换规则", Margin = new Thickness(6, 0, 0, 0) };
             replaceButton.Click += (s, e) => LoadPreset(replace: true);
-            var addButton = new Button { Content = "＋ 添加规则", Margin = new Thickness(12, 0, 0, 0) };
+            var addButton = new Button { Content = "＋ 添加规则", Margin = new Thickness(12, 6, 0, 0) };
             addButton.Click += (s, e) => {
                 var rule = new ConsonantRule(string.Empty, 0.7, ConsonantPresets.CustomGroup);
                 settings.Rules.Add(rule);
@@ -278,13 +537,13 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 UpdateRulesPanel();
                 SchedulePreview();
             };
-            var clearButton = new Button { Content = "清空", Margin = new Thickness(6, 0, 0, 0) };
+            var clearButton = new Button { Content = "清空", Margin = new Thickness(6, 6, 0, 0) };
             clearButton.Click += (s, e) => {
                 settings.Rules.Clear();
                 UpdateRulesPanel();
                 SchedulePreview();
             };
-            var defaultButton = new Button { Content = "恢复默认", Margin = new Thickness(6, 0, 0, 0) };
+            var defaultButton = new Button { Content = "恢复默认", Margin = new Thickness(6, 6, 0, 0) };
             defaultButton.Click += (s, e) => {
                 foreach (var preset in ConsonantPresets.All) {
                     ConsonantPresets.Merge(settings.Rules, preset.Rules);
@@ -298,18 +557,18 @@ namespace OpenUtau.Plugin.ConsonantLength {
             presetRow.Children.Add(mergeButton);
             presetRow.Children.Add(replaceButton);
 
-            var buttonRow = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) };
+            var buttonRow = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             buttonRow.Children.Add(addButton);
             buttonRow.Children.Add(clearButton);
             buttonRow.Children.Add(defaultButton);
 
             var scroll = new ScrollViewer {
                 Content = rulesPanel,
-                MaxHeight = 210,
-                MinHeight = 90,
+                MaxHeight = 380,
+                MinHeight = 140,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Margin = new Thickness(0, 2, 0, 0),
+                Margin = new Thickness(0, 8, 0, 0),
             };
 
             var content = new StackPanel { Spacing = 4 };
@@ -318,40 +577,25 @@ namespace OpenUtau.Plugin.ConsonantLength {
             content.Children.Add(scroll);
             content.Children.Add(rulesHint);
 
-            return Card("③ 音素匹配规则",
-                "按音素名开头匹配，最长前缀优先：sh 可匹配 shao / shi / shu；一条规则可写多个前缀，用逗号分隔，如 k,か,き,く,け,こ。",
-                content);
+            return Page(Card("音素匹配规则",
+                "按音素名开头匹配，最长前缀优先：sh 可匹配 shao / shi / shu；一条规则可写多个前缀，用逗号分隔，如 k,か,き,く,け,こ。语音时长页与 p1 页共用这里的规则。",
+                content));
         }
 
-        Control BuildPreviewCard() {
-            var scroll = new ScrollViewer {
-                Content = previewText,
-                MaxHeight = 120,
-                MinHeight = 70,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            };
-            var content = new StackPanel { Spacing = 4 };
-            content.Children.Add(scroll);
-            return Card("④ 预览", "改动会以「倍率 × 全局倍率」计算，先预览再应用。", content);
-        }
-
-        Control BuildButtonRow() {
-            var buttons = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Margin = new Thickness(0, 6, 0, 0) };
+        Control BuildFooter() {
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), Margin = new Thickness(0, 8, 0, 0) };
             Grid.SetColumn(statusText, 0);
-            buttons.Children.Add(statusText);
+            grid.Children.Add(statusText);
 
             var cancel = new Button { Content = "取消", MinWidth = 96, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += (s, e) => Close();
             Grid.SetColumn(cancel, 1);
-            buttons.Children.Add(cancel);
+            grid.Children.Add(cancel);
 
-            var apply = new Button { Content = "应用", MinWidth = 120, Margin = new Thickness(8, 0, 0, 0) };
-            apply.Click += (s, e) => Apply();
-            Grid.SetColumn(apply, 2);
-            buttons.Children.Add(apply);
-
-            return buttons;
+            applyButton.Click += (s, e) => Apply();
+            Grid.SetColumn(applyButton, 2);
+            grid.Children.Add(applyButton);
+            return grid;
         }
 
         #endregion
@@ -376,12 +620,22 @@ namespace OpenUtau.Plugin.ConsonantLength {
             }
         }
 
+        void UpdateApplyState() {
+            bool editable = tabs.SelectedIndex == TabDuration || tabs.SelectedIndex == TabOverlap || tabs.SelectedIndex == TabAlign;
+            applyButton.IsEnabled = editable;
+            applyButton.Content = tabs.SelectedIndex switch {
+                TabDuration => "应用辅音时长",
+                TabOverlap => "应用 p1",
+                TabAlign => "应用对齐",
+                _ => "应用",
+            };
+        }
+
         void LoadPreset(bool replace) {
             if (!(presetBox.SelectedItem is PresetItem item)) {
                 return;
             }
-            string preset = item.Preset.Id;
-            var source = ConsonantPresets.Find(preset);
+            var source = ConsonantPresets.Find(item.Preset.Id);
             if (source == null) {
                 return;
             }
@@ -432,10 +686,10 @@ namespace OpenUtau.Plugin.ConsonantLength {
             rulesPanel.Children.Clear();
             TextBox focusTarget = null;
             foreach (var rule in settings.Rules) {
-                var textBox = BuildRuleRow(rule);
-                rulesPanel.Children.Add(textBox.Item1);
+                var row = BuildRuleRow(rule);
+                rulesPanel.Children.Add(row.Item1);
                 if (rule == focusAfterRebuild) {
-                    focusTarget = textBox.Item2;
+                    focusTarget = row.Item2;
                 }
             }
             focusAfterRebuild = null;
@@ -446,7 +700,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
                     Margin = new Thickness(2, 4, 0, 0),
                 });
             }
-            rulesHint.Text = $"共 {settings.Rules.Count} 条规则，启用 {settings.Rules.Count(r => r.Enabled)} 条。";
+            UpdateRulesHint();
             if (focusTarget != null) {
                 Dispatcher.UIThread.Post(() => {
                     focusTarget.Focus();
@@ -490,8 +744,8 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 VerticalContentAlignment = VerticalAlignment.Center,
             };
             ratioBox.TextChanged += (s, e) => {
-                if (TryParseRatio(ratioBox.Text, out double value)) {
-                    rule.Ratio = value;
+                if (TryParseDouble(ratioBox.Text, out double value)) {
+                    rule.Ratio = Math.Clamp(value, 0.1, 3.0);
                     SchedulePreview();
                 }
             };
@@ -533,16 +787,11 @@ namespace OpenUtau.Plugin.ConsonantLength {
             rulesHint.Text = $"共 {settings.Rules.Count} 条规则，启用 {settings.Rules.Count(r => r.Enabled)} 条。";
         }
 
-        static bool TryParseRatio(string text, out double value) {
+        static bool TryParseDouble(string text, out double value) {
             if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)) {
-                value = Math.Clamp(value, 0.1, 3.0);
                 return true;
             }
-            if (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value)) {
-                value = Math.Clamp(value, 0.1, 3.0);
-                return true;
-            }
-            return false;
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
         }
 
         void SchedulePreview() {
@@ -559,36 +808,62 @@ namespace OpenUtau.Plugin.ConsonantLength {
             try {
                 var snapshot = settings.Clone();
                 snapshot.Sanitize();
-                var plan = ConsonantLengthAdjuster.Plan(project, part, selectedNotes, snapshot);
-                var builder = new StringBuilder();
-                builder.Append($"匹配 {plan.Matched} 个音素 · 将要调整 {plan.Changes.Count} 个 · 未匹配（元音/静音等）{plan.Unmatched} 个 · 无需调整 {plan.Unchanged} 个");
-                if (plan.NotesWithoutPhonemes > 0) {
-                    builder.Append($" · {plan.NotesWithoutPhonemes} 个音符还没有音素");
-                }
-                builder.AppendLine();
-                int shown = 0;
-                foreach (var change in plan.Changes) {
-                    if (shown >= 80) {
-                        builder.AppendLine($"… 还有 {plan.Changes.Count - shown} 项");
+                switch (tabs.SelectedIndex) {
+                    case TabDuration:
+                        durationPreview.Text = FormatPlan(
+                            ConsonantLengthAdjuster.Plan(project, part, selectedNotes, snapshot),
+                            p => p.Kind == ChangeKind.Preutter ? "preutter" : "length",
+                            p => p.BeforeMs,
+                            p => p.AfterMs);
                         break;
-                    }
-                    string kind = change.Kind == ChangeKind.Preutter ? "preutter" : "length";
-                    builder.AppendLine(string.Format(CultureInfo.InvariantCulture,
-                        "  {0,-10} {1,-9} {2,7:0.0} → {3,7:0.0} ms   ×{4:0.00}  [{5}]",
-                        Trim(change.PhonemeName, 10), kind, change.BeforeMs, change.AfterMs, change.Ratio, change.MatchedPrefix));
-                    shown++;
+                    case TabOverlap:
+                        overlapPreview.Text = FormatPlan(
+                            ConsonantLengthAdjuster.PlanOverlap(project, part, selectedNotes, snapshot),
+                            p => "p1",
+                            p => p.BeforeMs,
+                            p => p.AfterMs);
+                        break;
+                    case TabAlign:
+                        alignPreview.Text = FormatPlan(
+                            ConsonantLengthAdjuster.PlanAlign(project, part, selectedNotes, snapshot),
+                            p => p.Kind == ChangeKind.Position ? "start" : "preutter",
+                            p => p.BeforeMs,
+                            p => p.AfterMs);
+                        break;
                 }
-                foreach (var warning in plan.Warnings) {
-                    builder.AppendLine("  ! " + warning);
-                }
-                previewText.Text = builder.ToString().TrimEnd();
-                if (plan.Changes.Count == 0) {
-                    previewText.Text += Environment.NewLine + "（没有可调整的音素：请检查模式、规则前缀，或音素是否已有 preutter 数据）";
-                }
+                UpdateApplyState();
             } catch (Exception e) {
                 PluginLog.Error(e, "Preview failed.");
-                previewText.Text = "预览失败：" + e.Message;
+                durationPreview.Text = "预览失败：" + e.Message;
             }
+        }
+
+        static string FormatPlan(PlanResult plan, Func<PlannedChange, string> kind, Func<PlannedChange, double> before, Func<PlannedChange, double> after) {
+            var builder = new StringBuilder();
+            builder.Append($"匹配 {plan.Matched} 个音素 · 将要调整 {plan.Changes.Count} 个 · 未匹配（元音/静音等）{plan.Unmatched} 个 · 无需调整 {plan.Unchanged} 个");
+            if (plan.NotesWithoutPhonemes > 0) {
+                builder.Append($" · {plan.NotesWithoutPhonemes} 个音符还没有音素");
+            }
+            builder.AppendLine();
+            int shown = 0;
+            foreach (var change in plan.Changes) {
+                if (shown >= 80) {
+                    builder.AppendLine($"… 还有 {plan.Changes.Count - shown} 项");
+                    break;
+                }
+                builder.AppendLine(string.Format(CultureInfo.InvariantCulture,
+                    "  {0,-10} {1,-9} {2,7:0.0} → {3,7:0.0} ms   ×{4:0.00}  [{5}]",
+                    Trim(change.PhonemeName, 10), kind(change), before(change), after(change), change.Ratio, change.MatchedPrefix));
+                shown++;
+            }
+            foreach (var warning in plan.Warnings) {
+                builder.AppendLine("  ! " + warning);
+            }
+            string text = builder.ToString().TrimEnd();
+            if (plan.Changes.Count == 0) {
+                text += Environment.NewLine + "（没有可调整的音素：请检查页面选择、规则前缀，或音素是否已有 preutter 数据）";
+            }
+            return text;
         }
 
         static string Trim(string text, int max) {
@@ -602,7 +877,21 @@ namespace OpenUtau.Plugin.ConsonantLength {
             try {
                 var snapshot = settings.Clone();
                 snapshot.Sanitize();
-                var plan = ConsonantLengthAdjuster.Plan(project, part, selectedNotes, snapshot);
+                PlanResult plan;
+                switch (tabs.SelectedIndex) {
+                    case TabDuration:
+                        plan = ConsonantLengthAdjuster.Plan(project, part, selectedNotes, snapshot);
+                        break;
+                    case TabOverlap:
+                        plan = ConsonantLengthAdjuster.PlanOverlap(project, part, selectedNotes, snapshot);
+                        break;
+                    case TabAlign:
+                        plan = ConsonantLengthAdjuster.PlanAlign(project, part, selectedNotes, snapshot);
+                        break;
+                    default:
+                        SetStatus("「规则」页只用于设置匹配规则，请切换到其他页面应用。", true);
+                        return;
+                }
                 if (!plan.HasChanges) {
                     SetStatus("没有需要调整的音素。", true);
                     UpdatePreview();
@@ -610,8 +899,8 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 }
                 int count = ConsonantLengthAdjuster.Apply(part, plan, docManager);
                 PluginSettingsStore.Save(snapshot);
+                PluginLog.Info($"Apply tab={tabs.SelectedIndex} mode={snapshot.Mode} changed={count}");
                 SetStatus($"已调整 {count} 个音素。");
-                PluginLog.Info($"Apply: mode={snapshot.Mode}, scope={snapshot.Scope}, changed={count}");
                 Close();
             } catch (Exception e) {
                 PluginLog.Error(e, "Apply failed.");

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ExpressionEditor.Tests</AssemblyName>
+    <RootNamespace>OpenUtau.Plugin.CVVCExpression.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\OpenUtau.Plugin.CVVCExpression\Model\PhonemeName.cs" Link="Model\PhonemeName.cs" />
+    <Compile Include="..\..\src\OpenUtau.Plugin.CVVCExpression\Model\ExpressionSettings.cs" Link="Model\ExpressionSettings.cs" />
+    <Compile Include="..\..\src\OpenUtau.Plugin.CVVCExpression\Model\ExpressionPlanner.cs" Link="Model\ExpressionPlanner.cs" />
+  </ItemGroup>
+
+</Project>

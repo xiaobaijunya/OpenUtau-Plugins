@@ -8,26 +8,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-latest
+  test:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      - name: Test consonant length planner
+        run: dotnet run --project tests/ConsonantLength.Tests/ConsonantLength.Tests.csproj -c Release
+
+      - name: Test CVVC expression editor
+        run: dotnet run --project tests/ExpressionEditor.Tests/ExpressionEditor.Tests.csproj -c Release
+
+  upstream-compat:
+    # Compiles both plugins against the newest official OpenUtau.Core.dll.
+    # Newer OpenUtau releases target .NET 10, the shipped plugin target is net8.0,
+    # so this job builds the net10.0 flavor only (source level API check).
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Fetch OpenUtau.Core.dll from the latest OpenUtau release
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'OpenUtau-ConsonantLength-CI' }
+          $headers = @{ 'User-Agent' = 'OpenUtau-Plugins-CI' }
           $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/openutau/OpenUtau/releases/latest' -Headers $headers
           $asset = $release.assets | Where-Object { $_.name -match 'win.*x64.*\.zip$' } | Select-Object -First 1
-          if (-not $asset) { $asset = $release.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1 }
-          if (-not $asset) { throw 'No OpenUtau release zip asset found.' }
+          if (-not $asset) { throw 'No OpenUtau win-x64 zip asset found.' }
           Write-Host "Downloading $($asset.name)"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile openutau.zip
           Expand-Archive openutau.zip -DestinationPath openutau -Force
@@ -36,31 +54,8 @@ jobs:
           New-Item -ItemType Directory -Force lib | Out-Null
           Copy-Item $core.FullName lib/OpenUtau.Core.dll
 
-      - name: Run planning tests
-        run: dotnet run --project tests/ConsonantLength.Tests/ConsonantLength.Tests.csproj -c Release
+      - name: Compile consonant length plugin (net10 flavor)
+        run: dotnet build src/OpenUtau.Plugin.ConsonantLength/OpenUtau.Plugin.ConsonantLength.csproj -c Release -p:PluginTargetFrameworks=net10.0 -p:OpenUtauCorePath="${{ github.workspace }}/lib/OpenUtau.Core.dll"
 
-      - name: Build plugin
-        run: dotnet build src/OpenUtau.Plugin.ConsonantLength/OpenUtau.Plugin.ConsonantLength.csproj -c Release -p:OpenUtauCorePath="${{ github.workspace }}/lib/OpenUtau.Core.dll"
-
-      - name: Probe plugin loading
-        run: dotnet run --project tests/PluginLoadProbe/PluginLoadProbe.csproj -c Release -- lib/OpenUtau.Core.dll src/OpenUtau.Plugin.ConsonantLength/bin/Release/OpenUtau.Plugin.ConsonantLength.dll
-
-      - name: Package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $dll = 'src/OpenUtau.Plugin.ConsonantLength/bin/Release/OpenUtau.Plugin.ConsonantLength.dll'
-          if (-not (Test-Path $dll)) { throw "Missing $dll" }
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item $dll dist/
-          Copy-Item README.md dist/
-          Copy-Item LICENSE dist/
-          Compress-Archive -Path 'dist/*' -DestinationPath 'dist/OpenUtau.Plugin.ConsonantLength.zip' -Force
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenUtau.Plugin.ConsonantLength
-          path: |
-            dist/OpenUtau.Plugin.ConsonantLength.zip
-            dist/OpenUtau.Plugin.ConsonantLength.dll
+      - name: Compile CVVC expression plugin (net10 flavor)
+        run: dotnet build src/OpenUtau.Plugin.CVVCExpression/OpenUtau.Plugin.CVVCExpression.csproj -c Release -p:PluginTargetFrameworks=net10.0 -p:OpenUtauCorePath="${{ github.workspace }}/lib/OpenUtau.Core.dll"
