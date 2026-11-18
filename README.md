@@ -139,8 +139,8 @@ A：可以，但倍率是**相对当前值**的。第二次 0.7 是在第一次�
 **Q：会改动音符时值 / 节奏吗？**
 A：不会。CV 模式只改发音点；CVVC / AI 模式只移动音素本身的起点，音符的 position/duration 不变。
 
-**Q：支持上游 OpenUtau 吗？**
-A：本插件依赖 OpenUtau 的音素时间编辑命令（`PhonemePreutterCommand` / `PhonemeOverlapCommand` / `PhonemeOffsetCommand`）。本仓库在 OpenUtau 自定义渲染分支上开发与测试，包含这些命令的版本都可以使用。
+**Q：支持官方 OpenUtau 吗？**
+A：支持。插件只依赖 OpenUtau 公开的 `BatchEdit` 接口与音素时间编辑命令（`PhonemePreutterCommand` / `PhonemeOverlapCommand` / `PhonemeOffsetCommand`），官方 OpenUtau 0.1.5xx（含以上）都具备这些 API；本仓库在 OpenUtau 自定义渲染分支上开发，并已用官方源码核对接口一致。
 
 ---
 
