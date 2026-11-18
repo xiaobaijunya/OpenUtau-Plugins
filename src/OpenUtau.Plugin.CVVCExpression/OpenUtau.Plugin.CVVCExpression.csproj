@@ -9,7 +9,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>OpenUtau.Plugin.CVVCExpression</AssemblyName>
     <RootNamespace>OpenUtau.Plugin.CVVCExpression</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>xiaobaijunya</Authors>
     <Product>OpenUtau CVVC Expression Editor</Product>
     <Description>Batch edit VEL / BRE of CV, VC, -CV and V R phonemes in OpenUtau CVVC parts.</Description>

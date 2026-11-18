@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>UiLayoutProbe</AssemblyName>
+    <!-- Manual development tool: renders both plugin windows to PNG so the layout can be checked
+         without starting OpenUtau. Not part of the CI build. -->
+    <OpenUtauCorePath Condition="'$(OpenUtauCorePath)' == '' and '$(OPENUTAU_CORE_PATH)' != ''">$(OPENUTAU_CORE_PATH)</OpenUtauCorePath>
+    <OpenUtauCorePath Condition="'$(OpenUtauCorePath)' == ''">$(MSBuildThisFileDirectory)..\..\lib\OpenUtau.Core.dll</OpenUtauCorePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.4" />
+    <PackageReference Include="Avalonia.Headless" Version="11.2.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.4" />
+    <PackageReference Include="Avalonia.Skia" Version="11.2.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="OpenUtau.Core">
+      <HintPath>$(OpenUtauCorePath)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="OpenUtau.Plugin.ConsonantLength">
+      <HintPath>..\..\src\OpenUtau.Plugin.ConsonantLength\bin\Release\OpenUtau.Plugin.ConsonantLength.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="OpenUtau.Plugin.CVVCExpression">
+      <HintPath>..\..\src\OpenUtau.Plugin.CVVCExpression\bin\Release\OpenUtau.Plugin.CVVCExpression.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

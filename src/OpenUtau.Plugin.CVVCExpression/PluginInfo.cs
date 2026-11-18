@@ -4,7 +4,7 @@ namespace OpenUtau.Plugin.CVVCExpression {
 
     /// <summary>Version shown in the editor and written to the log.</summary>
     internal static class PluginInfo {
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
 
         public static string AssemblyVersion {
             get {

@@ -55,10 +55,10 @@ namespace OpenUtau.Plugin.CVVCExpression {
             this.settings.Sanitize();
 
             Title = "CVVC 音素参数 · CVVC Expression Editor";
-            Width = 860;
-            Height = 640;
-            MinWidth = 720;
-            MinHeight = 520;
+            Width = 940;
+            Height = 720;
+            MinWidth = 820;
+            MinHeight = 600;
             CanResize = true;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -85,10 +85,12 @@ namespace OpenUtau.Plugin.CVVCExpression {
             Grid.SetRow(header, 0);
             root.Children.Add(header);
 
-            var scopeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
-            scopeRow.Children.Add(new TextBlock { Text = "作用范围", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            var scopeLine = new StackPanel { Orientation = Orientation.Horizontal };
+            scopeLine.Children.Add(new TextBlock { Text = "作用范围", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
             scopeBox.ItemsSource = new[] { "仅选中的音符", "全部音符" };
             scopeBox.SelectedIndex = settings.Scope == EditScope.All ? 1 : 0;
+            scopeBox.MinHeight = 32;
+            scopeBox.FontSize = 13;
             scopeBox.SelectionChanged += (s, e) => {
                 if (suppressControlEvents) {
                     return;
@@ -97,7 +99,9 @@ namespace OpenUtau.Plugin.CVVCExpression {
                 UpdateScopeHint();
                 SchedulePreview();
             };
-            scopeRow.Children.Add(scopeBox);
+            scopeLine.Children.Add(scopeBox);
+            var scopeRow = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 8) };
+            scopeRow.Children.Add(scopeLine);
             scopeRow.Children.Add(scopeHint);
             Grid.SetRow(scopeRow, 1);
             root.Children.Add(scopeRow);
@@ -153,7 +157,10 @@ namespace OpenUtau.Plugin.CVVCExpression {
         }
 
         Control BuildKindCard() {
-            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("80,*,80,110,110") };
+            var grid = new Grid {
+                ColumnDefinitions = new ColumnDefinitions("80,*,70,150,150"),
+                RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
+            };
             AddCell(grid, HeaderText("类型"), 0, 0);
             AddCell(grid, HeaderText("判定规则（已过滤音高后缀）"), 0, 1);
             AddCell(grid, HeaderText("启用"), 0, 2);
@@ -186,8 +193,8 @@ namespace OpenUtau.Plugin.CVVCExpression {
         static TextBlock HeaderText(string text) => new TextBlock {
             Text = text,
             FontWeight = FontWeight.Bold,
-            FontSize = 12,
-            Margin = new Thickness(0, 0, 8, 6),
+            FontSize = 13,
+            Margin = new Thickness(0, 0, 10, 8),
             VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -203,25 +210,26 @@ namespace OpenUtau.Plugin.CVVCExpression {
             var kindText = new TextBlock {
                 Text = PhonemeClassifier.Describe(kind),
                 FontWeight = FontWeight.Bold,
+                FontSize = 13,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 6),
+                Margin = new Thickness(0, 0, 10, 8),
             };
             AddCell(grid, kindText, row, 0);
 
             var ruleText = new TextBlock {
                 Text = PhonemeClassifier.DescribeRule(kind),
-                FontSize = 12,
-                Opacity = 0.72,
+                FontSize = 13,
+                Opacity = 0.75,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 8, 6),
+                Margin = new Thickness(0, 0, 10, 8),
             };
             AddCell(grid, ruleText, row, 1);
 
             controls.Enabled = new CheckBox {
                 IsChecked = setting.Enabled,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 6),
+                Margin = new Thickness(0, 0, 10, 8),
             };
             controls.Enabled.Click += (s, e) => {
                 setting.Enabled = controls.Enabled.IsChecked == true;
@@ -234,7 +242,7 @@ namespace OpenUtau.Plugin.CVVCExpression {
                 setting.Vel = ParseValue(controls.Vel.Text);
                 SchedulePreview();
             };
-            controls.Vel.Margin = new Thickness(0, 0, 8, 6);
+            controls.Vel.Margin = new Thickness(0, 0, 10, 8);
             AddCell(grid, controls.Vel, row, 3);
 
             controls.Bre = BuildValueBox(setting.Bre, "不改");
@@ -242,7 +250,7 @@ namespace OpenUtau.Plugin.CVVCExpression {
                 setting.Bre = ParseValue(controls.Bre.Text);
                 SchedulePreview();
             };
-            controls.Bre.Margin = new Thickness(0, 0, 8, 6);
+            controls.Bre.Margin = new Thickness(0, 0, 10, 8);
             AddCell(grid, controls.Bre, row, 4);
 
             return controls;
@@ -251,8 +259,8 @@ namespace OpenUtau.Plugin.CVVCExpression {
         static TextBox BuildValueBox(double? value, string watermark) {
             return new TextBox {
                 Text = value.HasValue ? value.Value.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty,
-                MinHeight = 28,
-                FontSize = 12,
+                MinHeight = 32,
+                FontSize = 13,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Watermark = watermark,
             };

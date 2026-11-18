@@ -55,7 +55,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
         // p1 page
         readonly ComboBox p1TargetBox = new ComboBox { MinWidth = 230 };
         readonly ComboBox p1UnitBox = new ComboBox { MinWidth = 170 };
-        readonly NumericUpDown p1ValueBox = new NumericUpDown { Width = 130 };
+        readonly NumericUpDown p1ValueBox = new NumericUpDown { Width = 150, MinHeight = 32, FontSize = 13 };
         readonly TextBlock p1Hint = new TextBlock { FontSize = 12, Opacity = 0.65, TextWrapping = TextWrapping.Wrap };
         readonly TextBlock overlapPreview = PreviewText();
 
@@ -83,10 +83,10 @@ namespace OpenUtau.Plugin.ConsonantLength {
             this.settings.Sanitize();
 
             Title = "辅音时长调整 · Consonant Length Adjuster";
-            Width = 900;
-            Height = 720;
-            MinWidth = 760;
-            MinHeight = 560;
+            Width = 960;
+            Height = 780;
+            MinWidth = 820;
+            MinHeight = 620;
             CanResize = true;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -243,7 +243,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
             masterBox.Increment = 0.05m;
             masterBox.FormatString = "0.00";
             masterBox.Value = (decimal)settings.MasterRatio;
-            masterBox.Width = 110;
+            masterBox.Width = 150;
+            masterBox.MinHeight = 32;
+            masterBox.FontSize = 13;
             masterBox.ValueChanged += (s, e) => {
                 if (suppressControlEvents || !masterBox.Value.HasValue) {
                     return;
@@ -260,7 +262,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
             minBox.Increment = 5m;
             minBox.FormatString = "0.#";
             minBox.Value = (decimal)settings.MinLengthMs;
-            minBox.Width = 92;
+            minBox.Width = 140;
+            minBox.MinHeight = 32;
+            minBox.FontSize = 13;
             minBox.ValueChanged += (s, e) => {
                 if (suppressControlEvents || !minBox.Value.HasValue) {
                     return;
@@ -275,7 +279,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
             maxBox.Increment = 10m;
             maxBox.FormatString = "0.#";
             maxBox.Value = (decimal)settings.MaxLengthMs;
-            maxBox.Width = 92;
+            maxBox.Width = 140;
+            maxBox.MinHeight = 32;
+            maxBox.FontSize = 13;
             maxBox.ValueChanged += (s, e) => {
                 if (suppressControlEvents || !maxBox.Value.HasValue) {
                     return;
@@ -300,7 +306,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             var previewCard = Card("③ 预览", "改动会以「规则倍率 × 整体倍率」计算，先预览再应用。", new ScrollViewer {
                 Content = durationPreview,
-                MaxHeight = 200,
+                MaxHeight = 260,
                 MinHeight = 80,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -524,12 +530,14 @@ namespace OpenUtau.Plugin.ConsonantLength {
         Control BuildRulesTab() {
             presetBox.ItemsSource = ConsonantPresets.All.Select(p => new PresetItem(p)).ToList();
             presetBox.SelectedIndex = 0;
+            presetBox.MinHeight = 32;
+            presetBox.FontSize = 13;
 
-            var mergeButton = new Button { Content = "合并载入", Margin = new Thickness(6, 0, 0, 0) };
+            var mergeButton = new Button { Content = "合并载入", MinHeight = 32, Margin = new Thickness(6, 0, 0, 0) };
             mergeButton.Click += (s, e) => LoadPreset(replace: false);
-            var replaceButton = new Button { Content = "替换规则", Margin = new Thickness(6, 0, 0, 0) };
+            var replaceButton = new Button { Content = "替换规则", MinHeight = 32, Margin = new Thickness(6, 0, 0, 0) };
             replaceButton.Click += (s, e) => LoadPreset(replace: true);
-            var addButton = new Button { Content = "＋ 添加规则", Margin = new Thickness(12, 6, 0, 0) };
+            var addButton = new Button { Content = "＋ 添加规则", MinHeight = 32 };
             addButton.Click += (s, e) => {
                 var rule = new ConsonantRule(string.Empty, 0.7, ConsonantPresets.CustomGroup);
                 settings.Rules.Add(rule);
@@ -537,13 +545,13 @@ namespace OpenUtau.Plugin.ConsonantLength {
                 UpdateRulesPanel();
                 SchedulePreview();
             };
-            var clearButton = new Button { Content = "清空", Margin = new Thickness(6, 6, 0, 0) };
+            var clearButton = new Button { Content = "清空", MinHeight = 32, Margin = new Thickness(6, 0, 0, 0) };
             clearButton.Click += (s, e) => {
                 settings.Rules.Clear();
                 UpdateRulesPanel();
                 SchedulePreview();
             };
-            var defaultButton = new Button { Content = "恢复默认", Margin = new Thickness(6, 6, 0, 0) };
+            var defaultButton = new Button { Content = "恢复默认", MinHeight = 32, Margin = new Thickness(6, 0, 0, 0) };
             defaultButton.Click += (s, e) => {
                 foreach (var preset in ConsonantPresets.All) {
                     ConsonantPresets.Merge(settings.Rules, preset.Rules);
@@ -557,29 +565,54 @@ namespace OpenUtau.Plugin.ConsonantLength {
             presetRow.Children.Add(mergeButton);
             presetRow.Children.Add(replaceButton);
 
-            var buttonRow = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            buttonRow.Children.Add(addButton);
-            buttonRow.Children.Add(clearButton);
-            buttonRow.Children.Add(defaultButton);
-
             var scroll = new ScrollViewer {
                 Content = rulesPanel,
-                MaxHeight = 380,
-                MinHeight = 140,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Margin = new Thickness(0, 8, 0, 0),
+                Padding = new Thickness(0, 0, 8, 0),
             };
 
-            var content = new StackPanel { Spacing = 4 };
-            content.Children.Add(presetRow);
-            content.Children.Add(buttonRow);
-            content.Children.Add(scroll);
-            content.Children.Add(rulesHint);
+            // A real grid: the rule list stretches to the tab height instead of scrolling inside a card.
+            var panel = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto"), Margin = new Thickness(2, 10, 2, 0) };
+            var title = new TextBlock { Text = "音素匹配规则", FontWeight = FontWeight.Bold, FontSize = 13 };
+            var hint = new TextBlock {
+                Text = "按音素名开头匹配，最长前缀优先：sh 可匹配 shao / shi / shu；一条规则可写多个前缀，用逗号分隔，如 k,か,き,く,け,こ。语音时长页与 p1 页共用这里的规则。",
+                FontSize = 12,
+                Opacity = 0.62,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 8),
+            };
+            Grid.SetRow(title, 0);
+            Grid.SetRow(hint, 1);
+            var actionRow = new StackPanel { Orientation = Orientation.Horizontal };
+            actionRow.Children.Add(addButton);
+            actionRow.Children.Add(clearButton);
+            actionRow.Children.Add(defaultButton);
 
-            return Page(Card("音素匹配规则",
-                "按音素名开头匹配，最长前缀优先：sh 可匹配 shao / shi / shu；一条规则可写多个前缀，用逗号分隔，如 k,か,き,く,け,こ。语音时长页与 p1 页共用这里的规则。",
-                content));
+            var toolbar = new StackPanel { Spacing = 8 };
+            toolbar.Children.Add(presetRow);
+            toolbar.Children.Add(actionRow);
+
+            Grid.SetRow(toolbar, 2);
+            Grid.SetRow(scroll, 3);
+            Grid.SetRow(rulesHint, 4);
+
+            panel.Children.Add(title);
+            panel.Children.Add(hint);
+            panel.Children.Add(toolbar);
+            panel.Children.Add(scroll);
+            panel.Children.Add(rulesHint);
+            rulesHint.Margin = new Thickness(0, 6, 0, 0);
+
+            return new Border {
+                BorderBrush = CardBorderBrush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Background = CardBackgroundBrush,
+                Padding = new Thickness(12, 10, 12, 10),
+                Child = panel,
+            };
         }
 
         Control BuildFooter() {
@@ -724,9 +757,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             var prefixBox = new TextBox {
                 Text = rule.Prefix ?? string.Empty,
-                Width = 150,
-                MinHeight = 28,
-                FontSize = 12,
+                Width = 190,
+                MinHeight = 32,
+                FontSize = 13,
                 VerticalContentAlignment = VerticalAlignment.Center,
                 Watermark = "前缀，如 sh",
             };
@@ -737,9 +770,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             var ratioBox = new TextBox {
                 Text = rule.Ratio.ToString("0.00", CultureInfo.InvariantCulture),
-                Width = 52,
-                MinHeight = 28,
-                FontSize = 12,
+                Width = 70,
+                MinHeight = 32,
+                FontSize = 13,
                 TextAlignment = TextAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center,
             };
@@ -752,10 +785,10 @@ namespace OpenUtau.Plugin.ConsonantLength {
 
             var delete = new Button {
                 Content = "✕",
-                Width = 26,
-                Height = 26,
+                Width = 30,
+                Height = 30,
                 Padding = new Thickness(0),
-                FontSize = 11,
+                FontSize = 12,
                 Background = Brushes.Transparent,
                 VerticalAlignment = VerticalAlignment.Center,
             };

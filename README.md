@@ -176,6 +176,9 @@ powershell -ExecutionPolicy Bypass -File .\pack.ps1
 dotnet run --project tests\ConsonantLength.Tests      # 辅音时长 / p1 / 对齐逻辑
 dotnet run --project tests\ExpressionEditor.Tests      # 音素分类 / VEL/BRE 规划
 dotnet run --project tests\PluginLoadProbe -- <OpenUtau.Core.dll> <plugin.dll>
+
+# 界面截图工具（开发用，需要 OpenUtau.Core.dll）：把两个窗口渲染成 PNG 到 bin/.../shots/
+dotnet run --project tests\UiLayoutProbe
 ```
 
 > 插件只引用编译期的 `OpenUtau.Core.dll` 与 `Avalonia`（运行时使用 OpenUtau 自带的 Avalonia），所以发布包里只有两个 DLL。
@@ -208,6 +211,9 @@ tests/PluginLoadProbe/                   模拟 DocManager 的插件加载探测
 ```
 
 ## 更新日志
+
+### 1.1.1
+- 修复界面：输入框加宽（数值不再被上下箭头挤掉）、字号加大；CVVC 参数页的分类表格改为真正的多行布局，不再重叠；规则页规则列表填满窗口高度。
 
 ### 1.1.0
 - 新增「p1 · overlap」页：按倍率 / 绝对值 / 占 p0 比例单独调整 p1。
