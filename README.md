@@ -9,6 +9,20 @@
 
 两个 DLL 相互独立，可以只装其中一个。
 
+## 界面预览
+
+| 辅音时长 | p1 / overlap |
+| --- | --- |
+| ![辅音时长](docs/screenshots/consonant-duration.png) | ![p1](docs/screenshots/consonant-p1.png) |
+
+| CVVC · p0 对齐 | 规则 |
+| --- | --- |
+| ![对齐](docs/screenshots/consonant-align.png) | ![规则](docs/screenshots/consonant-rules.png) |
+
+![CVVC 参数](docs/screenshots/cvvc-expression.png)
+
+> 截图由 `tests/UiLayoutProbe`（无头 Avalonia）生成，颜色会随 OpenUtau 主题变化。
+
 ---
 
 ## 安装
