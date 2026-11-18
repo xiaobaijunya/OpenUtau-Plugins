@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using OpenUtau.Core;
 using OpenUtau.Core.Ustx;
 
@@ -67,9 +68,9 @@ namespace OpenUtau.Plugin.ConsonantLength {
                     }
                     switch (change.Kind) {
                         case ChangeKind.Preutter:
-                            docManager.ExecuteCmd(new PhonemePreutterCommand(part, note, phoneme.index, change.NewPreutterDelta));
+                            docManager.ExecuteCmd(NewPreutterCommand(part, note, phoneme, change.NewPreutterDelta));
                             if (change.HasOverlapChange) {
-                                docManager.ExecuteCmd(new PhonemeOverlapCommand(part, note, phoneme.index, change.NewOverlapDelta));
+                                docManager.ExecuteCmd(NewOverlapCommand(part, note, phoneme, change.NewOverlapDelta));
                             }
                             applied++;
                             break;
@@ -78,7 +79,7 @@ namespace OpenUtau.Plugin.ConsonantLength {
                             applied++;
                             break;
                         case ChangeKind.Overlap:
-                            docManager.ExecuteCmd(new PhonemeOverlapCommand(part, note, phoneme.index, change.NewOverlapDelta));
+                            docManager.ExecuteCmd(NewOverlapCommand(part, note, phoneme, change.NewOverlapDelta));
                             applied++;
                             break;
                     }
@@ -88,6 +89,50 @@ namespace OpenUtau.Plugin.ConsonantLength {
             }
             PluginLog.Info($"Applied {applied} phoneme timing changes.");
             return applied;
+        }
+
+        // OpenUtau changed the constructor of the preutter / overlap commands over time:
+        //   fork (CustomRenderer): (part, note, index, delta)
+        //   upstream 0.1.5xx+:     (part, note, index, phoneme, delta)
+        // Resolve the available overload once so one DLL works on both.
+        static ConstructorInfo preutterCtor;
+        static ConstructorInfo overlapCtor;
+        static bool constructorsResolved;
+
+        static readonly Type[] CommandCtor5 = { typeof(UVoicePart), typeof(UNote), typeof(int), typeof(UPhoneme), typeof(float) };
+        static readonly Type[] CommandCtor4 = { typeof(UVoicePart), typeof(UNote), typeof(int), typeof(float) };
+
+        static void ResolveConstructors() {
+            if (constructorsResolved) {
+                return;
+            }
+            preutterCtor = typeof(PhonemePreutterCommand).GetConstructor(CommandCtor5)
+                ?? typeof(PhonemePreutterCommand).GetConstructor(CommandCtor4);
+            overlapCtor = typeof(PhonemeOverlapCommand).GetConstructor(CommandCtor5)
+                ?? typeof(PhonemeOverlapCommand).GetConstructor(CommandCtor4);
+            constructorsResolved = true;
+        }
+
+        static UCommand NewPreutterCommand(UVoicePart part, UNote note, UPhoneme phoneme, float delta) {
+            ResolveConstructors();
+            if (preutterCtor == null) {
+                throw new MissingMethodException("PhonemePreutterCommand", ".ctor");
+            }
+            object[] args = preutterCtor.GetParameters().Length == 5
+                ? new object[] { part, note, phoneme.index, phoneme, delta }
+                : new object[] { part, note, phoneme.index, delta };
+            return (UCommand)preutterCtor.Invoke(args);
+        }
+
+        static UCommand NewOverlapCommand(UVoicePart part, UNote note, UPhoneme phoneme, float delta) {
+            ResolveConstructors();
+            if (overlapCtor == null) {
+                throw new MissingMethodException("PhonemeOverlapCommand", ".ctor");
+            }
+            object[] args = overlapCtor.GetParameters().Length == 5
+                ? new object[] { part, note, phoneme.index, phoneme, delta }
+                : new object[] { part, note, phoneme.index, delta };
+            return (UCommand)overlapCtor.Invoke(args);
         }
     }
 }
